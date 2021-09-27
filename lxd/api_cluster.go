@@ -17,7 +17,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/pkg/errors"
 
-	"github.com/lxc/lxd/client"
+	lxd "github.com/lxc/lxd/client"
 	"github.com/lxc/lxd/lxd/cluster"
 	clusterRequest "github.com/lxc/lxd/lxd/cluster/request"
 	"github.com/lxc/lxd/lxd/db"
@@ -742,6 +742,9 @@ func clusterPutDisable(d *Daemon, r *http.Request, req api.ClusterPut) response.
 	if err != nil {
 		return response.SmartError(err)
 	}
+
+	// Stop clustering tasks
+	d.stopClusterTasks()
 
 	requestor := request.CreateRequestor(r)
 	d.State().Events.SendLifecycle(projectParam(r), lifecycle.ClusterDisabled.Event(req.ServerName, requestor, nil))
@@ -1551,6 +1554,8 @@ func clusterNodeDelete(d *Daemon, r *http.Request) response.Response {
 	if err != nil {
 		return response.SmartError(errors.Wrap(err, "Unable to get raft nodes"))
 	}
+
+	d.stopClusterTasks()
 
 	// If we are removing the leader of a 2 node cluster, ensure the other node can be a leader.
 	if name == leaderInfo.Name && len(nodes) == 2 {
