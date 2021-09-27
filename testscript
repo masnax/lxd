@@ -1,0 +1,21 @@
+#!/bin/zsh
+
+while ! grep -q "server role is not valid" /tmp/testscript || false
+do
+	touch /tmp/testscript
+	rm -f /tmp/testscript
+	touch /tmp/testscript
+	source /home/vagrant/.zshrc
+
+	gotest clustering_remove_leader 2>&1 >> /tmp/testscript &
+
+	while ! grep -q "BOP" /tmp/testscript || false
+	do
+		sleep 1
+	done
+
+	sleep 3
+	killtest 2>&1 >> /dev/null &
+
+	ip link show | awk '{print $2}' | grep "^br" | cut -d":" -f1 | xargs printf "sudo ip link del %s\n" | bash
+done
