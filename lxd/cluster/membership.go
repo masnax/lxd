@@ -685,7 +685,7 @@ func Assign(state *state.State, gateway *Gateway, nodes []db.RaftNode) error {
 	}
 
 assign:
-	logger.Info(
+	logger.Warn(
 		"Changing dqlite raft role",
 		log15.Ctx{"id": info.ID, "address": info.Address, "role": info.Role})
 
