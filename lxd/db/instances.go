@@ -69,7 +69,6 @@ type Instance struct {
 	Stateful     bool
 	LastUseDate  sql.NullTime
 	Description  string `db:"coalesce=''"`
-	Profiles     []string
 	ExpiryDate   sql.NullTime
 }
 
@@ -97,7 +96,6 @@ func InstanceToArgs(inst *Instance) InstanceArgs {
 		Stateful:     inst.Stateful,
 		LastUsedDate: inst.LastUseDate.Time,
 		Description:  inst.Description,
-		Profiles:     inst.Profiles,
 		ExpiryDate:   inst.ExpiryDate.Time,
 	}
 
