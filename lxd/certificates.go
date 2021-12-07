@@ -13,7 +13,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/pkg/errors"
 
-	"github.com/lxc/lxd/client"
+	lxd "github.com/lxc/lxd/client"
 	"github.com/lxc/lxd/lxd/cluster"
 	clusterRequest "github.com/lxc/lxd/lxd/cluster/request"
 	"github.com/lxc/lxd/lxd/db"
@@ -142,15 +142,23 @@ func certificatesGet(d *Daemon, r *http.Request) response.Response {
 		var err error
 		err = d.cluster.Transaction(func(tx *db.ClusterTx) error {
 			baseCerts, err = tx.GetCertificates(db.CertificateFilter{})
-			return err
+			if err != nil {
+				return err
+			}
+
+			for _, baseCert := range baseCerts {
+				apiCert, err := baseCert.ToAPI(tx)
+				if err != nil {
+					return err
+				}
+				certResponses = append(certResponses, *apiCert)
+			}
+			return nil
 		})
 		if err != nil {
 			return response.SmartError(err)
 		}
 
-		for _, baseCert := range baseCerts {
-			certResponses = append(certResponses, baseCert.ToAPI())
-		}
 		return response.SyncResponse(true, certResponses)
 	}
 
@@ -173,19 +181,31 @@ func updateCertificateCache(d *Daemon) {
 	newCerts := map[db.CertificateType]map[string]x509.Certificate{}
 	newProjects := map[string][]string{}
 
+	var certs []*api.Certificate
 	var dbCerts []db.Certificate
 	var localCerts []db.Certificate
 	var err error
 	err = d.cluster.Transaction(func(tx *db.ClusterTx) error {
 		dbCerts, err = tx.GetCertificates(db.CertificateFilter{})
-		return err
+		if err != nil {
+			return err
+		}
+
+		certs = make([]*api.Certificate, len(dbCerts))
+		for i, c := range dbCerts {
+			certs[i], err = c.ToAPI(tx)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		logger.Warn("Failed reading certificates from global database", log.Ctx{"err": err})
 		return
 	}
 
-	for _, dbCert := range dbCerts {
+	for i, dbCert := range dbCerts {
 		if _, found := newCerts[dbCert.Type]; !found {
 			newCerts[dbCert.Type] = make(map[string]x509.Certificate)
 		}
@@ -205,7 +225,7 @@ func updateCertificateCache(d *Daemon) {
 		newCerts[dbCert.Type][shared.CertFingerprint(cert)] = *cert
 
 		if dbCert.Restricted {
-			newProjects[shared.CertFingerprint(cert)] = dbCert.Projects
+			newProjects[shared.CertFingerprint(cert)] = certs[i].Projects
 		}
 
 		// Add server certs to list of certificates to store in local database to allow cluster restart.
@@ -515,10 +535,26 @@ func certificatesPost(d *Daemon, r *http.Request) response.Response {
 			Name:        name,
 			Certificate: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw})),
 			Restricted:  req.Restricted,
-			Projects:    req.Projects,
 		}
 
-		_, err := d.cluster.CreateCertificate(dbCert)
+		err := d.cluster.Transaction(func(tx *db.ClusterTx) error {
+			_, err := tx.CreateCertificate(dbCert)
+			if err != nil {
+				return err
+			}
+
+			projects := make([]db.Project, len(req.Projects))
+			for i, p := range req.Projects {
+				project, err := tx.GetProject(p)
+				if err != nil {
+					return err
+				}
+
+				projects[i] = *project
+			}
+
+			return tx.UpdateCertificateProjects(dbCert, projects)
+		})
 		if err != nil {
 			return response.SmartError(err)
 		}
@@ -589,12 +625,19 @@ func certificatesPost(d *Daemon, r *http.Request) response.Response {
 func certificateGet(d *Daemon, r *http.Request) response.Response {
 	fingerprint := mux.Vars(r)["fingerprint"]
 
-	dbCertInfo, err := d.cluster.GetCertificate(fingerprint)
+	var cert *api.Certificate
+	err := d.cluster.Transaction(func(tx *db.ClusterTx) error {
+		dbCertInfo, err := tx.GetCertificate(fingerprint)
+		if err != nil {
+			return err
+		}
+		cert, err = dbCertInfo.ToAPI(tx)
+		return err
+	})
 	if err != nil {
 		return response.SmartError(err)
 	}
 
-	cert := dbCertInfo.ToAPI()
 	return response.SyncResponseETag(true, cert, cert)
 }
 
@@ -631,13 +674,23 @@ func certificatePut(d *Daemon, r *http.Request) response.Response {
 	fingerprint := mux.Vars(r)["fingerprint"]
 
 	// Get current database record.
-	oldEntry, err := d.cluster.GetCertificate(fingerprint)
+	var apiEntry *api.Certificate
+	err := d.cluster.Transaction(func(tx *db.ClusterTx) error {
+		var err error
+		oldEntry, err := tx.GetCertificate(fingerprint)
+		if err != nil {
+			return err
+		}
+
+		apiEntry, err = oldEntry.ToAPI(tx)
+		return err
+	})
 	if err != nil {
 		return response.SmartError(err)
 	}
 
 	// Validate the ETag.
-	err = util.EtagCheck(r, oldEntry.ToAPI())
+	err = util.EtagCheck(r, apiEntry)
 	if err != nil {
 		return response.PreconditionFailed(err)
 	}
@@ -652,7 +705,7 @@ func certificatePut(d *Daemon, r *http.Request) response.Response {
 	clientType := clusterRequest.UserAgentClientType(r.Header.Get("User-Agent"))
 
 	// Apply the update.
-	return doCertificateUpdate(d, *oldEntry, req, clientType, r)
+	return doCertificateUpdate(d, *apiEntry, req, clientType, r)
 }
 
 // swagger:operation PATCH /1.0/certificates/{fingerprint} certificates certificate_patch
@@ -688,29 +741,39 @@ func certificatePatch(d *Daemon, r *http.Request) response.Response {
 	fingerprint := mux.Vars(r)["fingerprint"]
 
 	// Get current database record.
-	oldEntry, err := d.cluster.GetCertificate(fingerprint)
+	var apiEntry *api.Certificate
+	err := d.cluster.Transaction(func(tx *db.ClusterTx) error {
+		var err error
+		oldEntry, err := tx.GetCertificate(fingerprint)
+		if err != nil {
+			return err
+		}
+
+		apiEntry, err = oldEntry.ToAPI(tx)
+		return err
+	})
 	if err != nil {
 		return response.SmartError(err)
 	}
 
 	// Validate the ETag.
-	err = util.EtagCheck(r, oldEntry.ToAPI())
+	err = util.EtagCheck(r, apiEntry)
 	if err != nil {
 		return response.PreconditionFailed(err)
 	}
 
 	// Apply the changes.
-	req := oldEntry.ToAPI()
+	req := apiEntry
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		return response.BadRequest(err)
 	}
 
 	clientType := clusterRequest.UserAgentClientType(r.Header.Get("User-Agent"))
 
-	return doCertificateUpdate(d, *oldEntry, req.Writable(), clientType, r)
+	return doCertificateUpdate(d, *apiEntry, req.Writable(), clientType, r)
 }
 
-func doCertificateUpdate(d *Daemon, dbInfo db.Certificate, req api.CertificatePut, clientType clusterRequest.ClientType, r *http.Request) response.Response {
+func doCertificateUpdate(d *Daemon, dbInfo api.Certificate, req api.CertificatePut, clientType clusterRequest.ClientType, r *http.Request) response.Response {
 	if clientType == clusterRequest.ClientTypeNormal {
 		reqDBType, err := db.CertificateAPITypeToDBType(req.Type)
 		if err != nil {
@@ -722,7 +785,6 @@ func doCertificateUpdate(d *Daemon, dbInfo db.Certificate, req api.CertificatePu
 			Certificate: dbInfo.Certificate,
 			Fingerprint: dbInfo.Fingerprint,
 			Restricted:  req.Restricted,
-			Projects:    req.Projects,
 			Name:        req.Name,
 			Type:        reqDBType,
 		}
@@ -730,6 +792,7 @@ func doCertificateUpdate(d *Daemon, dbInfo db.Certificate, req api.CertificatePu
 		// Non-admins are able to change their own certificate but no other fields.
 		// In order to prevent possible future security issues, the certificate information is
 		// reset in case a non-admin user is performing the update.
+		certProjects := req.Projects
 		if !rbac.UserIsAdmin(r) {
 			if r.TLS == nil {
 				response.Forbidden(fmt.Errorf("Cannot update certificate information"))
@@ -751,10 +814,11 @@ func doCertificateUpdate(d *Daemon, dbInfo db.Certificate, req api.CertificatePu
 				Certificate: dbInfo.Certificate,
 				Fingerprint: dbInfo.Fingerprint,
 				Restricted:  dbInfo.Restricted,
-				Projects:    dbInfo.Projects,
 				Name:        dbInfo.Name,
 				Type:        reqDBType,
 			}
+
+			certProjects = dbInfo.Projects
 
 			if req.Certificate != "" && dbInfo.Certificate != req.Certificate {
 				certBlock, _ := pem.Decode([]byte(dbInfo.Certificate))
@@ -798,7 +862,7 @@ func doCertificateUpdate(d *Daemon, dbInfo db.Certificate, req api.CertificatePu
 		}
 
 		// Update the database record.
-		err = d.cluster.UpdateCertificate(dbInfo.Fingerprint, dbCert)
+		err = d.cluster.UpdateCertificate(dbInfo.Fingerprint, dbCert, certProjects)
 		if err != nil {
 			return response.SmartError(err)
 		}

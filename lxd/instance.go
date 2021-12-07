@@ -390,6 +390,7 @@ func instanceCreateAsCopy(s *state.State, opts instanceCreateAsCopyOpts, op *ope
 
 // Load all instances of this nodes under the given project.
 func instanceLoadNodeProjectAll(s *state.State, project string, instanceType instancetype.Type) ([]instance.Instance, error) {
+	var instances []instance.Instance
 	// Get all the container arguments
 	var cts []db.Instance
 	err := s.Cluster.Transaction(func(tx *db.ClusterTx) error {
@@ -401,19 +402,25 @@ func instanceLoadNodeProjectAll(s *state.State, project string, instanceType ins
 			return err
 		}
 
+		instances, err = instance.LoadAllInternal(s, tx, cts)
+		if err != nil {
+			return err
+		}
+
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	return instance.LoadAllInternal(s, cts)
+	return instances, nil
 }
 
 func autoCreateContainerSnapshotsTask(d *Daemon) (task.Func, task.Schedule) {
 	f := func(ctx context.Context) {
 		// Get projects.
 		var projects []db.Project
+		allInstances := []instance.Instance{}
 		err := d.State().Cluster.Transaction(func(tx *db.ClusterTx) error {
 			var err error
 			projects, err = tx.GetProjects(db.ProjectFilter{})
@@ -421,26 +428,25 @@ func autoCreateContainerSnapshotsTask(d *Daemon) (task.Func, task.Schedule) {
 				return fmt.Errorf("Failed loading projects: %w", err)
 			}
 
-			return err
+			// Load local instances by project
+			for _, p := range projects {
+				err = project.AllowSnapshotCreation(tx, &p)
+				if err != nil {
+					continue
+				}
+
+				projectInstances, err := instanceLoadNodeProjectAll(d.State(), p.Name, instancetype.Any)
+				if err != nil {
+					continue
+				}
+
+				allInstances = append(allInstances, projectInstances...)
+			}
+
+			return nil
 		})
 		if err != nil {
 			return
-		}
-
-		// Load local instances by project
-		allInstances := []instance.Instance{}
-		for _, p := range projects {
-			err = project.AllowSnapshotCreation(&p)
-			if err != nil {
-				continue
-			}
-
-			projectInstances, err := instanceLoadNodeProjectAll(d.State(), p.Name, instancetype.Any)
-			if err != nil {
-				continue
-			}
-
-			allInstances = append(allInstances, projectInstances...)
 		}
 
 		// Figure out which need snapshotting (if any)

@@ -16,7 +16,7 @@ import (
 	"github.com/pborman/uuid"
 	"github.com/pkg/errors"
 
-	"github.com/lxc/lxd/client"
+	lxd "github.com/lxc/lxd/client"
 	"github.com/lxc/lxd/lxd/backup"
 	"github.com/lxc/lxd/lxd/db"
 	deviceConfig "github.com/lxc/lxd/lxd/device/config"
@@ -372,6 +372,57 @@ func fetchInstanceDatabaseObject(s *state.State, project, name string) (*db.Inst
 	return container, nil
 }
 
+func fetchInstanceFull(s *state.State, project, name string) (*db.InstanceFull, error) {
+	var instanceFull *db.InstanceFull
+	err := s.Cluster.Transaction(func(tx *db.ClusterTx) error {
+		if strings.Contains(name, shared.SnapshotDelimiter) {
+			parts := strings.SplitN(name, shared.SnapshotDelimiter, 2)
+			instanceName := parts[0]
+			snapshotName := parts[1]
+
+			instance, err := tx.GetInstance(project, instanceName)
+			if err != nil {
+				return errors.Wrapf(err, "Failed to fetch instance %q in project %q", name, project)
+			}
+
+			profiles, err := tx.GetInstanceProfiles(*instance)
+			if err != nil {
+				return err
+			}
+
+			snapshot, err := tx.GetInstanceSnapshot(project, instanceName, snapshotName)
+			if err != nil {
+				return errors.Wrapf(err, "Failed to fetch snapshot %q of instance %q in project %q", snapshotName, instanceName, project)
+			}
+
+			snapshotFull, err := snapshot.ToInstanceFull(tx, instance, profiles)
+			if err != nil {
+				return err
+			}
+
+			instanceFull = snapshotFull
+		} else {
+			var err error
+			instance, err := tx.GetInstance(project, name)
+			if err != nil {
+				return errors.Wrapf(err, "Failed to fetch instance %q in project %q", name, project)
+			}
+
+			instanceFull, err = instance.ToInstanceFull(tx)
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return instanceFull, nil
+}
+
 // LoadInstanceDatabaseObject loads a db.Instance object, accounting for snapshots.
 func LoadInstanceDatabaseObject(tx *db.ClusterTx, project, name string) (*db.Instance, error) {
 	var container *db.Instance
@@ -407,7 +458,7 @@ func LoadInstanceDatabaseObject(tx *db.ClusterTx, project, name string) (*db.Ins
 // LoadByProjectAndName loads an instance by project and name.
 func LoadByProjectAndName(s *state.State, project, name string) (Instance, error) {
 	// Get the DB record
-	container, err := fetchInstanceDatabaseObject(s, project, name)
+	container, err := fetchInstanceFull(s, project, name)
 	if err != nil {
 		return nil, err
 	}
@@ -422,51 +473,30 @@ func LoadByProjectAndName(s *state.State, project, name string) (Instance, error
 }
 
 // LoadAllInternal loads a list of db instances into a list of instances.
-func LoadAllInternal(s *state.State, dbInstances []db.Instance) ([]Instance, error) {
-	// Figure out what profiles are in use
-	profiles := map[string]map[string]api.Profile{}
-	for _, instArgs := range dbInstances {
-		projectProfiles, ok := profiles[instArgs.Project]
-		if !ok {
-			projectProfiles = map[string]api.Profile{}
-			profiles[instArgs.Project] = projectProfiles
-		}
-		for _, profile := range instArgs.Profiles {
-			_, ok := projectProfiles[profile]
-			if !ok {
-				projectProfiles[profile] = api.Profile{}
-			}
-		}
-	}
-
-	// Get the profile data
-	for project, projectProfiles := range profiles {
-		for name := range projectProfiles {
-			_, profile, err := s.Cluster.GetProfile(project, name)
-			if err != nil {
-				return nil, err
-			}
-
-			projectProfiles[name] = *profile
-		}
-	}
-
-	// Load the instances structs
+func LoadAllInternal(s *state.State, tx *db.ClusterTx, dbInstances []db.Instance) ([]Instance, error) {
 	instances := []Instance{}
-	for _, dbInstance := range dbInstances {
-		// Figure out the instances's profiles
-		cProfiles := []api.Profile{}
-		for _, name := range dbInstance.Profiles {
-			cProfiles = append(cProfiles, profiles[dbInstance.Project][name])
-		}
-
-		args := db.InstanceToArgs(&dbInstance)
-		inst, err := Load(s, args, cProfiles)
+	for _, inst := range dbInstances {
+		fullInst, err := inst.ToInstanceFull(tx)
 		if err != nil {
 			return nil, err
 		}
 
-		instances = append(instances, inst)
+		apiProfiles := make([]api.Profile, len(fullInst.Profiles))
+		for i, p := range fullInst.Profiles {
+			apiProfile, err := p.ToAPI(tx, nil)
+			if err != nil {
+				return nil, err
+			}
+
+			apiProfiles[i] = *apiProfile
+		}
+
+		instance, err := Load(s, db.InstanceToArgs(fullInst), apiProfiles)
+		if err != nil {
+			return nil, err
+		}
+
+		instances = append(instances, instance)
 	}
 
 	return instances, nil
@@ -475,13 +505,18 @@ func LoadAllInternal(s *state.State, dbInstances []db.Instance) ([]Instance, err
 // LoadByProject loads all instances in a project.
 func LoadByProject(s *state.State, project string) ([]Instance, error) {
 	// Get all the instances.
-	var cts []db.Instance
+	var instances []Instance
 	err := s.Cluster.Transaction(func(tx *db.ClusterTx) error {
 		filter := db.InstanceFilter{
 			Project: &project,
 		}
-		var err error
-		cts, err = tx.GetInstances(filter)
+
+		cts, err := tx.GetInstances(filter)
+		if err != nil {
+			return err
+		}
+
+		instances, err = LoadAllInternal(s, tx, cts)
 		if err != nil {
 			return err
 		}
@@ -492,7 +527,7 @@ func LoadByProject(s *state.State, project string) ([]Instance, error) {
 		return nil, err
 	}
 
-	return LoadAllInternal(s, cts)
+	return instances, nil
 }
 
 // LoadFromAllProjects loads all instances across all projects.
@@ -523,11 +558,15 @@ func LoadFromAllProjects(s *state.State) ([]Instance, error) {
 // LoadNodeAll loads all instances of this nodes.
 func LoadNodeAll(s *state.State, instanceType instancetype.Type) ([]Instance, error) {
 	// Get all the container arguments
-	var insts []db.Instance
+	var instances []Instance
 	err := s.Cluster.Transaction(func(tx *db.ClusterTx) error {
-		var err error
 		filter := db.InstanceTypeFilter(instanceType)
-		insts, err = tx.GetLocalInstancesInProject(filter)
+		insts, err := tx.GetLocalInstancesInProject(filter)
+		if err != nil {
+			return err
+		}
+
+		instances, err = LoadAllInternal(s, tx, insts)
 		if err != nil {
 			return err
 		}
@@ -538,7 +577,7 @@ func LoadNodeAll(s *state.State, instanceType instancetype.Type) ([]Instance, er
 		return nil, err
 	}
 
-	return LoadAllInternal(s, insts)
+	return instances, nil
 }
 
 // LoadFromBackup loads from a mounted instance's backup file.
@@ -964,7 +1003,7 @@ func CreateInternal(s *state.State, args db.InstanceArgs, clearLogDir bool, volu
 		args.LastUsedDate = time.Unix(0, 0).UTC()
 	}
 
-	var dbInst db.Instance
+	var dbInst *db.InstanceFull
 	var op *operationlock.InstanceOperation
 
 	err = s.Cluster.Transaction(func(tx *db.ClusterTx) error {
@@ -1002,13 +1041,23 @@ func CreateInternal(s *state.State, args db.InstanceArgs, clearLogDir bool, volu
 				CreationDate: args.CreationDate,
 				Stateful:     args.Stateful,
 				Description:  args.Description,
-				Config:       args.Config,
-				Devices:      devices,
 				ExpiryDate:   sql.NullTime{Time: args.ExpiryDate, Valid: true},
 			}
-			_, err = tx.CreateInstanceSnapshot(snapshot)
+			id, err := tx.CreateInstanceSnapshot(snapshot)
 			if err != nil {
 				return errors.Wrap(err, "Add snapshot info to the database")
+			}
+
+			err = tx.CreateInstanceSnapshotConfig(id, args.Config)
+			if err != nil {
+				return err
+			}
+
+			for _, device := range devices {
+				err = tx.CreateInstanceDevice(id, device)
+				if err != nil {
+					return err
+				}
 			}
 
 			// Read back the snapshot, to get ID and creation time.
@@ -1017,13 +1066,18 @@ func CreateInternal(s *state.State, args db.InstanceArgs, clearLogDir bool, volu
 				return errors.Wrap(err, "Fetch created snapshot from the database")
 			}
 
-			dbInst = db.InstanceSnapshotToInstance(instance, s)
+			profiles, err := tx.GetInstanceProfiles(*instance)
+			if err != nil {
+				return err
+			}
+
+			dbInst, err = s.ToInstanceFull(tx, instance, profiles)
 
 			return nil
 		}
 
 		// Create the instance entry.
-		dbInst = db.Instance{
+		inst := db.Instance{
 			Project:      args.Project,
 			Name:         args.Name,
 			Node:         node,
@@ -1035,15 +1089,39 @@ func CreateInternal(s *state.State, args db.InstanceArgs, clearLogDir bool, volu
 			Stateful:     args.Stateful,
 			LastUseDate:  sql.NullTime{Time: args.LastUsedDate, Valid: true},
 			Description:  args.Description,
-			Config:       args.Config,
-			Devices:      devices,
-			Profiles:     args.Profiles,
 			ExpiryDate:   sql.NullTime{Time: args.ExpiryDate, Valid: true},
 		}
 
-		_, err = tx.CreateInstance(dbInst)
+		id, err := tx.CreateInstance(inst)
 		if err != nil {
 			return errors.Wrap(err, "Add instance info to the database")
+		}
+
+		err = tx.CreateInstanceConfig(id, args.Config)
+		if err != nil {
+			return err
+		}
+
+		for _, device := range devices {
+			err = tx.CreateInstanceDevice(id, device)
+			if err != nil {
+				return err
+			}
+		}
+
+		profiles := make([]db.Profile, len(args.Profiles))
+		for i, name := range args.Profiles {
+			profile, err := tx.GetProfile(args.Project, name)
+			if err != nil {
+				return err
+			}
+
+			profiles[i] = *profile
+		}
+
+		err = tx.UpdateInstanceProfiles(inst, profiles)
+		if err != nil {
+			return err
 		}
 
 		// Read back the instance, to get ID and creation time.
@@ -1052,13 +1130,16 @@ func CreateInternal(s *state.State, args db.InstanceArgs, clearLogDir bool, volu
 			return errors.Wrap(err, "Fetch created instance from the database")
 		}
 
-		dbInst = *dbRow
-
-		if dbInst.ID < 1 {
-			return errors.Wrapf(err, "Unexpected instance database ID %d", dbInst.ID)
+		dbInst, err = dbRow.ToInstanceFull(tx)
+		if err != nil {
+			return err
 		}
 
-		op, err = operationlock.Create(dbInst.Project, dbInst.Name, "create", false, false)
+		if dbInst.Instance.ID < 1 {
+			return errors.Wrapf(err, "Unexpected instance database ID %d", dbInst.Instance.ID)
+		}
+
+		op, err = operationlock.Create(dbInst.Instance.Project, dbInst.Instance.Name, "create", false, false)
 		if err != nil {
 			return err
 		}
@@ -1080,9 +1161,9 @@ func CreateInternal(s *state.State, args db.InstanceArgs, clearLogDir bool, volu
 		return nil, nil, err
 	}
 
-	revert.Add(func() { s.Cluster.DeleteInstance(dbInst.Project, dbInst.Name) })
+	revert.Add(func() { s.Cluster.DeleteInstance(dbInst.Instance.Project, dbInst.Instance.Name) })
 
-	args = db.InstanceToArgs(&dbInst)
+	args = db.InstanceToArgs(dbInst)
 	inst, err := Create(s, args, volumeConfig, revert)
 	if err != nil {
 		logger.Error("Failed initialising instance", log.Ctx{"project": args.Project, "instance": args.Name, "type": args.Type, "err": err})
@@ -1155,9 +1236,9 @@ func MoveTemporaryName(inst Instance) string {
 
 // IsSameLogicalInstance returns true if the supplied Instance and db.Instance have the same project and name or
 // if they have the same volatile.uuid values.
-func IsSameLogicalInstance(inst Instance, dbInst *db.Instance) bool {
+func IsSameLogicalInstance(inst Instance, dbInst *db.InstanceFull) bool {
 	// Instance name is unique within a project.
-	if dbInst.Project == inst.Project() && dbInst.Name == inst.Name() {
+	if dbInst.Instance.Project == inst.Project() && dbInst.Instance.Name == inst.Name() {
 		return true
 	}
 

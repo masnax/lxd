@@ -71,7 +71,7 @@ type internalRecoverImportPost struct {
 // internalRecoverScan provides the discovery and import functionality for both recovery validate and import steps.
 func internalRecoverScan(d *Daemon, userPools []api.StoragePoolsPost, validateOnly bool) response.Response {
 	var err error
-	var projects map[string]*db.Project
+	var projects map[string]*api.Project
 	var projectProfiles map[string][]*api.Profile
 	var projectNetworks map[string]map[int64]api.Network
 
@@ -85,9 +85,10 @@ func internalRecoverScan(d *Daemon, userPools []api.StoragePoolsPost, validateOn
 		}
 
 		// Convert to map for lookups by name later.
-		projects = make(map[string]*db.Project, len(ps))
+		projects = make(map[string]*api.Project, len(ps))
 		for i := range ps {
-			projects[ps[i].Name] = &ps[i]
+			project := ps[i].ToAPI()
+			projects[ps[i].Name] = &project
 		}
 
 		// Load list of project/profile names for validation.
@@ -99,10 +100,14 @@ func internalRecoverScan(d *Daemon, userPools []api.StoragePoolsPost, validateOn
 		// Convert to map for lookups by project name later.
 		projectProfiles = make(map[string][]*api.Profile)
 		for _, profile := range profiles {
+			apiProfile, err := profile.ToAPI(tx, nil)
+			if err != nil {
+				return err
+			}
 			if projectProfiles[profile.Project] == nil {
-				projectProfiles[profile.Project] = []*api.Profile{db.ProfileToAPI(&profile)}
+				projectProfiles[profile.Project] = []*api.Profile{apiProfile}
 			} else {
-				projectProfiles[profile.Project] = append(projectProfiles[profile.Project], db.ProfileToAPI(&profile))
+				projectProfiles[profile.Project] = append(projectProfiles[profile.Project], apiProfile)
 			}
 		}
 
@@ -221,8 +226,8 @@ func internalRecoverScan(d *Daemon, userPools []api.StoragePoolsPost, validateOn
 			var networkProjectName string
 
 			if projectInfo != nil {
-				profileProjectname = project.ProfileProjectFromRecord(projectInfo)
-				networkProjectName = project.NetworkProjectFromRecord(projectInfo)
+				profileProjectname = project.ProfileProjectFromRecord(*projectInfo)
+				networkProjectName = project.NetworkProjectFromRecord(*projectInfo)
 			} else {
 				addDependencyError(fmt.Errorf("Project %q", projectName))
 				continue // Skip further validation if project is missing.
@@ -319,7 +324,7 @@ func internalRecoverScan(d *Daemon, userPools []api.StoragePoolsPost, validateOn
 				return response.SmartError(fmt.Errorf("Project %q not found", projectName))
 			}
 
-			profileProjectName := project.ProfileProjectFromRecord(projectInfo)
+			profileProjectName := project.ProfileProjectFromRecord(*projectInfo)
 			customStorageProjectName := project.StorageVolumeProjectFromRecord(projectInfo, db.StoragePoolVolumeTypeCustom)
 
 			// Create missing storage pool DB record if neeed.

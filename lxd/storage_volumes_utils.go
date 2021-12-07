@@ -22,7 +22,7 @@ func storagePoolVolumeUpdateUsers(d *Daemon, projectName string, oldPoolName str
 	s := d.State()
 
 	// Update all instances that are using the volume with a local (non-expanded) device.
-	err := storagePools.VolumeUsedByInstanceDevices(s, oldPoolName, projectName, oldVol, false, func(dbInst db.Instance, project db.Project, profiles []api.Profile, usedByDevices []string) error {
+	err := storagePools.VolumeUsedByInstanceDevices(s, oldPoolName, projectName, oldVol, false, func(dbInst db.InstanceFull, project api.Project, profiles []api.Profile, usedByDevices []string) error {
 		inst, err := instance.Load(s, db.InstanceToArgs(&dbInst), profiles)
 		if err != nil {
 			return err
@@ -60,20 +60,19 @@ func storagePoolVolumeUpdateUsers(d *Daemon, projectName string, oldPoolName str
 	}
 
 	// Update all profiles that are using the volume with a device.
-	err = storagePools.VolumeUsedByProfileDevices(s, oldPoolName, projectName, oldVol, func(profile db.Profile, p db.Project, usedByDevices []string) error {
-		for _, dev := range profile.Devices {
-			if shared.StringInSlice(dev.Name, usedByDevices) {
-				dev.Config["pool"] = newPoolName
-				dev.Config["source"] = newVol.Name
+	err = storagePools.VolumeUsedByProfileDevices(s, oldPoolName, projectName, oldVol, func(profileID int64, profile api.Profile, profileProject string, p api.Project, usedByDevices []string) error {
+		for name, config := range profile.Devices {
+			if shared.StringInSlice(name, usedByDevices) {
+				config["pool"] = newPoolName
+				config["source"] = newVol.Name
 			}
 		}
 
 		pUpdate := api.ProfilePut{}
 		pUpdate.Config = profile.Config
 		pUpdate.Description = profile.Description
-		pUpdate.Devices = db.DevicesToAPI(profile.Devices)
-		apiProfile := db.ProfileToAPI(&profile)
-		err = doProfileUpdate(d, profile.Project, profile.Name, int64(profile.ID), apiProfile, pUpdate)
+		pUpdate.Devices = profile.Devices
+		err = doProfileUpdate(d, profileProject, profile.Name, profileID, &profile, pUpdate)
 		if err != nil {
 			return err
 		}
@@ -131,11 +130,11 @@ func storagePoolVolumeUsedByGet(s *state.State, projectName string, poolName str
 
 	// Pass false to expandDevices, as we only want to see instances directly using a volume, rather than their
 	// profiles using a volume.
-	err = storagePools.VolumeUsedByInstanceDevices(s, poolName, projectName, vol, false, func(inst db.Instance, p db.Project, profiles []api.Profile, usedByDevices []string) error {
-		if inst.Project == project.Default {
-			volumeUsedBy = append(volumeUsedBy, fmt.Sprintf("/%s/instances/%s", version.APIVersion, inst.Name))
+	err = storagePools.VolumeUsedByInstanceDevices(s, poolName, projectName, vol, false, func(inst db.InstanceFull, p api.Project, profiles []api.Profile, usedByDevices []string) error {
+		if inst.Instance.Project == project.Default {
+			volumeUsedBy = append(volumeUsedBy, fmt.Sprintf("/%s/instances/%s", version.APIVersion, inst.Instance.Name))
 		} else {
-			volumeUsedBy = append(volumeUsedBy, fmt.Sprintf("/%s/instances/%s?project=%s", version.APIVersion, inst.Name, inst.Project))
+			volumeUsedBy = append(volumeUsedBy, fmt.Sprintf("/%s/instances/%s?project=%s", version.APIVersion, inst.Instance.Name, inst.Instance.Project))
 		}
 
 		return nil
@@ -144,11 +143,11 @@ func storagePoolVolumeUsedByGet(s *state.State, projectName string, poolName str
 		return []string{}, err
 	}
 
-	err = storagePools.VolumeUsedByProfileDevices(s, poolName, projectName, vol, func(profile db.Profile, p db.Project, usedByDevices []string) error {
-		if profile.Project == project.Default {
+	err = storagePools.VolumeUsedByProfileDevices(s, poolName, projectName, vol, func(profileID int64, profile api.Profile, profileProject string, p api.Project, usedByDevices []string) error {
+		if profileProject == project.Default {
 			volumeUsedBy = append(volumeUsedBy, fmt.Sprintf("/%s/profiles/%s", version.APIVersion, profile.Name))
 		} else {
-			volumeUsedBy = append(volumeUsedBy, fmt.Sprintf("/%s/profiles/%s?project=%s", version.APIVersion, profile.Name, profile.Project))
+			volumeUsedBy = append(volumeUsedBy, fmt.Sprintf("/%s/profiles/%s?project=%s", version.APIVersion, profile.Name, profileProject))
 		}
 
 		return nil

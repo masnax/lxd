@@ -6,7 +6,6 @@ package db
 import (
 	"fmt"
 
-	deviceConfig "github.com/lxc/lxd/lxd/device/config"
 	"github.com/lxc/lxd/shared/api"
 	"github.com/pkg/errors"
 )
@@ -42,20 +41,32 @@ type Profile struct {
 	Project     string `db:"primary=yes&join=projects.name"`
 	Name        string `db:"primary=yes"`
 	Description string `db:"coalesce=''"`
-	UsedBy      []string
 }
 
 // ProfileToAPI is a convenience to convert a Profile db struct into
 // an API profile struct.
-func ProfileToAPI(profile *Profile) *api.Profile {
-	p := &api.Profile{
-		Name:   profile.Name,
-		UsedBy: profile.UsedBy,
+func (p Profile) ToAPI(tx *ClusterTx, usedBy []string) (*api.Profile, error) {
+	config, err := tx.GetProfileConfig(p)
+	if err != nil {
+		return nil, err
 	}
-	p.Description = profile.Description
-	// TODO: fetch profile device/config and handle errors.
 
-	return p
+	devices, err := tx.GetProfileDevices(p)
+	if err != nil {
+		return nil, err
+	}
+
+	profile := &api.Profile{
+		Name:   p.Name,
+		UsedBy: usedBy,
+		ProfilePut: api.ProfilePut{
+			Description: p.Description,
+			Config:      config,
+			Devices:     DevicesToAPI(devices),
+		},
+	}
+
+	return profile, nil
 }
 
 // ProfileFilter specifies potential query parameter fields.
@@ -63,27 +74,6 @@ type ProfileFilter struct {
 	ID      *int
 	Project *string
 	Name    *string
-}
-
-// GetProfileUsedBy returns all the instances that use the given profile.
-func (c *ClusterTx) GetProfileUsedBy(profile Profile) ([]string, error) {
-	usedBy := []string{}
-
-	profileInstances, err := c.GetProfileInstances()
-	if err != nil {
-		return nil, err
-	}
-
-	for _, instanceID := range profileInstances[profile.ID] {
-		instanceURIs, err := c.GetInstanceURIs(InstanceFilter{ID: &instanceID})
-		if err != nil {
-			return nil, err
-		}
-
-		usedBy = append(usedBy, instanceURIs...)
-	}
-
-	return usedBy, nil
 }
 
 // GetProjectProfileNames returns slice of profile names keyed on the project they belong to.
@@ -198,7 +188,11 @@ func (c *ClusterTx) getProfile(project, name string) (int64, *api.Profile, error
 		return -1, nil, err
 	}
 
-	result = ProfileToAPI(profile)
+	result, err = profile.ToAPI(c, nil)
+	if err != nil {
+		return -1, nil, err
+	}
+
 	id = int64(profile.ID)
 
 	return id, result, nil
@@ -224,7 +218,12 @@ func (c *Cluster) GetProfiles(projectName string, profileNames []string) ([]api.
 				return errors.Wrapf(err, "Failed loading profile %q", profileName)
 			}
 
-			profiles[i] = *ProfileToAPI(profile)
+			apiProfile, err := profile.ToAPI(tx, nil)
+			if err != nil {
+				return err
+			}
+
+			profiles[i] = *apiProfile
 		}
 
 		return nil
@@ -324,16 +323,12 @@ func ExpandInstanceConfig(config map[string]string, profiles []api.Profile) map[
 
 // ExpandInstanceDevices expands the given instance devices with the devices
 // defined in the given profiles.
-func ExpandInstanceDevices(devices deviceConfig.Devices, profiles []api.Profile) deviceConfig.Devices {
-	expandedDevices := deviceConfig.Devices{}
+func ExpandInstanceDevices(devices map[string]map[string]string, profiles []api.Profile) map[string]map[string]string {
+	expandedDevices := map[string]map[string]string{}
 
 	// Apply all the profiles
-	profileDevices := make([]deviceConfig.Devices, len(profiles))
-	for i, profile := range profiles {
-		profileDevices[i] = deviceConfig.NewDevices(profile.Devices)
-	}
-	for i := range profileDevices {
-		for k, v := range profileDevices[i] {
+	for _, profile := range profiles {
+		for k, v := range profile.Devices {
 			expandedDevices[k] = v
 		}
 	}

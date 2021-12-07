@@ -68,11 +68,14 @@ func InstanceSnapshotToInstance(instance *Instance, snapshot *InstanceSnapshot) 
 		Stateful:     snapshot.Stateful,
 		LastUseDate:  sql.NullTime{},
 		Description:  snapshot.Description,
-		Profiles:     instance.Profiles,
 		ExpiryDate:   snapshot.ExpiryDate,
 	}
 
 	// TODO: fetch instance devices and config, and handle errors if necessary.
+}
+
+func (s InstanceSnapshot) ToInstanceFull(tx *ClusterTx, instance *Instance, profiles []Profile) (*InstanceFull, error) {
+	return nil, nil
 }
 
 // UpdateInstanceSnapshotConfig inserts/updates/deletes the provided config keys.

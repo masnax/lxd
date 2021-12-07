@@ -442,8 +442,8 @@ func patchVMRenameUUIDKey(name string, d *Daemon) error {
 	oldUUIDKey := "volatile.vm.uuid"
 	newUUIDKey := "volatile.uuid"
 
-	return d.State().Cluster.InstanceList(nil, func(inst db.Instance, p db.Project, profiles []api.Profile) error {
-		if inst.Type != instancetype.VM {
+	return d.State().Cluster.InstanceList(nil, func(inst db.InstanceFull, p api.Project, profiles []api.Profile) error {
+		if inst.Instance.Type != instancetype.VM {
 			return nil
 		}
 
@@ -455,20 +455,24 @@ func patchVMRenameUUIDKey(name string, d *Daemon) error {
 					newUUIDKey: uuid,
 				}
 
-				logger.Debugf("Renaming config key %q to %q for VM %q (Project %q)", oldUUIDKey, newUUIDKey, inst.Name, inst.Project)
-				err := tx.UpdateInstanceConfig(inst.ID, changes)
+				logger.Debugf("Renaming config key %q to %q for VM %q (Project %q)", oldUUIDKey, newUUIDKey, inst.Instance.Name, inst.Instance.Project)
+				err := tx.UpdateInstanceConfig(int64(inst.Instance.ID), changes)
 				if err != nil {
-					return errors.Wrapf(err, "Failed renaming config key %q to %q for VM %q (Project %q)", oldUUIDKey, newUUIDKey, inst.Name, inst.Project)
+					return errors.Wrapf(err, "Failed renaming config key %q to %q for VM %q (Project %q)", oldUUIDKey, newUUIDKey, inst.Instance.Name, inst.Instance.Project)
 				}
 			}
 
-			snaps, err := tx.GetInstanceSnapshotsWithName(inst.Project, inst.Name)
+			snaps, err := tx.GetInstanceSnapshotsWithName(inst.Instance.Project, inst.Instance.Name)
 			if err != nil {
 				return err
 			}
 
 			for _, snap := range snaps {
-				uuid := snap.Config[oldUUIDKey]
+				snapConfig, err := tx.GetInstanceSnapshotConfig(db.InstanceSnapshot{ID: snap.ID})
+				if err != nil {
+					return err
+				}
+				uuid := snapConfig[oldUUIDKey]
 				if uuid != "" {
 					changes := map[string]string{
 						oldUUIDKey: "",
@@ -2527,12 +2531,22 @@ func updatePoolPropertyForAllObjects(d *Daemon, poolName string, allcontainers [
 					return err
 				}
 
-				return tx.UpdateProfile("default", pName, db.Profile{
+				err = tx.UpdateProfile("default", pName, db.Profile{
 					Project: "default",
 					Name:    pName,
-					Config:  p.Config,
-					Devices: devices,
 				})
+
+				id, err := tx.GetProfileID("default", pName)
+				if err != nil {
+					return err
+				}
+
+				err = tx.UpdateProfileConfig(id, p.Config)
+				if err != nil {
+					return err
+				}
+
+				return tx.UpdateProfileDevices(id, devices)
 			})
 			if err != nil {
 				logger.Errorf("Failed to update old configuration for profile %s: %s", pName, err)

@@ -11,7 +11,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/dustinkirkland/golang-petname"
+	petname "github.com/dustinkirkland/golang-petname"
 	"github.com/gorilla/websocket"
 	"github.com/pkg/errors"
 
@@ -70,13 +70,24 @@ func createFromImage(d *Daemon, r *http.Request, projectName string, req *api.In
 		var info *api.Image
 		if req.Source.Server != "" {
 			var autoUpdate bool
-			p, err := d.cluster.GetProject(projectName)
+			var p *db.Project
+			var config map[string]string
+
+			err := d.cluster.Transaction(func(tx *db.ClusterTx) error {
+				p, err = tx.GetProject(projectName)
+				if err != nil {
+					return err
+				}
+
+				config, err = tx.GetProjectConfig(*p)
+				return err
+			})
 			if err != nil {
 				return err
 			}
 
-			if p.Config["images.auto_update_cached"] != "" {
-				autoUpdate = shared.IsTrue(p.Config["images.auto_update_cached"])
+			if config["images.auto_update_cached"] != "" {
+				autoUpdate = shared.IsTrue(config["images.auto_update_cached"])
 			} else {
 				autoUpdate, err = cluster.ConfigGetBool(d.cluster, "images.auto_update_cached")
 				if err != nil {
@@ -854,7 +865,18 @@ func instancesPost(d *Daemon, r *http.Request) response.Response {
 			group = strings.TrimPrefix(targetNode, "@")
 		}
 
-		p, err := d.cluster.GetProject(targetProject)
+		var p *db.Project
+		var config map[string]string
+
+		err = d.cluster.Transaction(func(tx *db.ClusterTx) error {
+			p, err = tx.GetProject(targetProject)
+			if err != nil {
+				return err
+			}
+
+			config, err = tx.GetProjectConfig(*p)
+			return err
+		})
 		if err != nil {
 			return response.SmartError(err)
 		}
@@ -903,8 +925,8 @@ func instancesPost(d *Daemon, r *http.Request) response.Response {
 		}
 
 		defaultArch := ""
-		if p.Config["images.default_architecture"] != "" {
-			defaultArch = p.Config["images.default_architecture"]
+		if config["images.default_architecture"] != "" {
+			defaultArch = config["images.default_architecture"]
 		} else {
 			defaultArch, err = cluster.ConfigGetString(d.cluster, "images.default_architecture")
 			if err != nil {

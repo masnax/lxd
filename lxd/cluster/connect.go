@@ -12,7 +12,7 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/lxc/lxd/client"
+	lxd "github.com/lxc/lxd/client"
 	clusterRequest "github.com/lxc/lxd/lxd/cluster/request"
 	"github.com/lxc/lxd/lxd/db"
 	"github.com/lxc/lxd/lxd/instance/instancetype"
@@ -158,11 +158,11 @@ func ConnectIfVolumeIsRemote(s *state.State, poolName string, projectName string
 		if remoteInstance != nil {
 			var instNode db.NodeInfo
 			err := s.Cluster.Transaction(func(tx *db.ClusterTx) error {
-				instNode, err = tx.GetNodeByName(remoteInstance.Node)
+				instNode, err = tx.GetNodeByName(remoteInstance.Instance.Node)
 				return err
 			})
 			if err != nil {
-				return nil, errors.Wrapf(err, "Failed getting cluster member info for %q", remoteInstance.Node)
+				return nil, errors.Wrapf(err, "Failed getting cluster member info for %q", remoteInstance.Instance.Node)
 			}
 
 			// Replace node list with instance's cluster member node (which might be local member).

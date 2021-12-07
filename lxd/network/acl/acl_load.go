@@ -115,41 +115,47 @@ func UsedBy(s *state.State, aclProjectName string, usageFunc func(matchedACLName
 
 	// Look for profiles. Next cheapest to do.
 	var profiles []db.Profile
+	var devices map[string]db.Device
 	err = s.Cluster.Transaction(func(tx *db.ClusterTx) error {
 		profiles, err = tx.GetProfiles(db.ProfileFilter{})
 		if err != nil {
 			return err
 		}
 
+		for _, profile := range profiles {
+			devices, err = tx.GetProfileDevices(profile)
+			if err != nil {
+				return err
+			}
+
+			// Get the profiles's effective network project name.
+			profileNetworkProjectName, _, err := project.NetworkProject(s.Cluster, profile.Project)
+			if err != nil {
+				return err
+			}
+
+			// Skip profiles who's effective network project doesn't match this Network ACL's project.
+			if profileNetworkProjectName != aclProjectName {
+				continue
+			}
+
+			// Iterate through each of the instance's devices, looking for NICs that are using any of the ACLs.
+			for devName, devConfig := range deviceConfig.NewDevices(db.DevicesToAPI(devices)) {
+				matchedACLNames := isInUseByDevice(devConfig, matchACLNames...)
+				if len(matchedACLNames) > 0 {
+					// Call usageFunc with a list of matched ACLs and info about the instance NIC.
+					err := usageFunc(matchedACLNames, profile, devName, devConfig)
+					if err != nil {
+						return err
+					}
+				}
+			}
+		}
+
 		return nil
 	})
 	if err != nil {
 		return err
-	}
-
-	for _, profile := range profiles {
-		// Get the profiles's effective network project name.
-		profileNetworkProjectName, _, err := project.NetworkProject(s.Cluster, profile.Project)
-		if err != nil {
-			return err
-		}
-
-		// Skip profiles who's effective network project doesn't match this Network ACL's project.
-		if profileNetworkProjectName != aclProjectName {
-			continue
-		}
-
-		// Iterate through each of the instance's devices, looking for NICs that are using any of the ACLs.
-		for devName, devConfig := range deviceConfig.NewDevices(db.DevicesToAPI(profile.Devices)) {
-			matchedACLNames := isInUseByDevice(devConfig, matchACLNames...)
-			if len(matchedACLNames) > 0 {
-				// Call usageFunc with a list of matched ACLs and info about the instance NIC.
-				err := usageFunc(matchedACLNames, profile, devName, devConfig)
-				if err != nil {
-					return err
-				}
-			}
-		}
 	}
 
 	// Find ACLs that have rules that reference the ACLs.
@@ -198,16 +204,16 @@ func UsedBy(s *state.State, aclProjectName string, usageFunc func(matchedACLName
 	}
 
 	// Find instances using the ACLs. Most expensive to do.
-	err = s.Cluster.InstanceList(nil, func(inst db.Instance, p db.Project, profiles []api.Profile) error {
+	err = s.Cluster.InstanceList(nil, func(inst db.InstanceFull, p api.Project, profiles []api.Profile) error {
 		// Get the instance's effective network project name.
-		instNetworkProject := project.NetworkProjectFromRecord(&p)
+		instNetworkProject := project.NetworkProjectFromRecord(p)
 
 		// Skip instances who's effective network project doesn't match this Network ACL's project.
 		if instNetworkProject != aclProjectName {
 			return nil
 		}
 
-		devices := db.ExpandInstanceDevices(deviceConfig.NewDevices(db.DevicesToAPI(inst.Devices)), profiles)
+		devices := db.ExpandInstanceDevices(db.DevicesToAPI(inst.Devices), profiles)
 
 		// Iterate through each of the instance's devices, looking for NICs that are using any of the ACLs.
 		for devName, devConfig := range devices {

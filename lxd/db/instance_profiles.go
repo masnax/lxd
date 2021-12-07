@@ -35,7 +35,7 @@ type InstanceProfileFilter struct {
 }
 
 // UpdateInstanceProfiles updates the profiles of an instance in the order they are given.
-func (c *ClusterTx) UpdateInstanceProfiles(instance Instance) error {
+func (c *ClusterTx) UpdateInstanceProfiles(instance Instance, profiles []Profile) error {
 	err := c.DeleteInstanceProfiles(instance)
 	if err != nil {
 		return err
@@ -54,11 +54,11 @@ func (c *ClusterTx) UpdateInstanceProfiles(instance Instance) error {
 	applyOrder := 1
 	stmt := c.stmt(instanceProfileCreate)
 
-	for _, name := range instance.Profiles {
+	for _, profile := range profiles {
 		var instanceID int64
 		var profileID int64
 
-		profileID, err = c.GetProfileID(project, name)
+		profileID, err = c.GetProfileID(project, profile.Name)
 		instanceID = int64(instance.ID)
 
 		if err != nil {

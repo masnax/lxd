@@ -81,23 +81,63 @@ type InstanceFilter struct {
 	Type    *instancetype.Type
 }
 
-// InstanceToArgs is a convenience to convert an Instance db struct into the legacy InstanceArgs.
-func InstanceToArgs(inst *Instance) InstanceArgs {
-	args := InstanceArgs{
-		ID:           inst.ID,
-		Project:      inst.Project,
-		Name:         inst.Name,
-		Node:         inst.Node,
-		Type:         inst.Type,
-		Snapshot:     inst.Snapshot,
-		Architecture: inst.Architecture,
-		Ephemeral:    inst.Ephemeral,
-		CreationDate: inst.CreationDate,
-		Stateful:     inst.Stateful,
-		LastUsedDate: inst.LastUseDate.Time,
-		Description:  inst.Description,
-		ExpiryDate:   inst.ExpiryDate.Time,
+type InstanceFull struct {
+	Instance Instance
+	Profiles []Profile
+	Config   map[string]string
+	Devices  map[string]Device
+}
+
+func (inst Instance) ToInstanceFull(tx *ClusterTx) (*InstanceFull, error) {
+	profiles, err := tx.GetInstanceProfiles(inst)
+	if err != nil {
+		return nil, err
 	}
+
+	config, err := tx.GetInstanceConfig(inst)
+	if err != nil {
+		return nil, err
+	}
+
+	devices, err := tx.GetInstanceDevices(inst)
+	if err != nil {
+		return nil, err
+	}
+
+	return &InstanceFull{
+		Instance: inst,
+		Profiles: profiles,
+		Config:   config,
+		Devices:  devices,
+	}, nil
+}
+
+// InstanceToArgs is a convenience to convert an Instance db struct into the legacy InstanceArgs.
+func InstanceToArgs(inst *InstanceFull) InstanceArgs {
+	args := InstanceArgs{
+		ID:           inst.Instance.ID,
+		Project:      inst.Instance.Project,
+		Name:         inst.Instance.Name,
+		Node:         inst.Instance.Node,
+		Type:         inst.Instance.Type,
+		Snapshot:     inst.Instance.Snapshot,
+		Architecture: inst.Instance.Architecture,
+		Ephemeral:    inst.Instance.Ephemeral,
+		CreationDate: inst.Instance.CreationDate,
+		Stateful:     inst.Instance.Stateful,
+		LastUsedDate: inst.Instance.LastUseDate.Time,
+		Description:  inst.Instance.Description,
+		ExpiryDate:   inst.Instance.ExpiryDate.Time,
+		Config:       inst.Config,
+	}
+
+	profileNames := make([]string, len(inst.Profiles))
+	for i, profile := range inst.Profiles {
+		profileNames[i] = profile.Name
+	}
+
+	args.Profiles = profileNames
+	args.Devices = deviceConfig.NewDevices(DevicesToAPI(inst.Devices))
 
 	// TODO: fetch instance devices, config, and profiles, and handle errors if necessary.
 	return args
@@ -126,6 +166,10 @@ type InstanceArgs struct {
 	Profiles     []string
 	Stateful     bool
 	ExpiryDate   time.Time
+}
+
+func (i *Instance) ToAPI(tx *ClusterTx) (api.Instance, error) {
+	return api.Instance{}, nil
 }
 
 // InstanceTypeFilter returns an InstanceFilter populated with a valid instance type,
@@ -307,7 +351,7 @@ var ErrInstanceListStop = fmt.Errorf("search stopped")
 
 // InstanceList loads all instances across all projects and for each instance runs the instanceFunc passing in the
 // instance and it's project and profiles. Accepts optional filter argument to specify a subset of instances.
-func (c *Cluster) InstanceList(filter *InstanceFilter, instanceFunc func(inst Instance, project Project, profiles []api.Profile) error) error {
+func (c *Cluster) InstanceList(filter *InstanceFilter, instanceFunc func(inst InstanceFull, project api.Project, profiles []api.Profile) error) error {
 	var instances []Instance
 	projectMap := map[string]Project{}
 	projectHasProfiles := map[string]bool{}
@@ -333,7 +377,11 @@ func (c *Cluster) InstanceList(filter *InstanceFilter, instanceFunc func(inst In
 		// Index of all projects by name and record which projects have the profiles feature.
 		for i, project := range projects {
 			projectMap[project.Name] = projects[i]
-			projectHasProfiles[project.Name] = shared.IsTrue(project.Config["features.profiles"])
+			config, err := tx.GetProjectConfig(project)
+			if err != nil {
+				return err
+			}
+			projectHasProfiles[project.Name] = shared.IsTrue(config["features.profiles"])
 		}
 
 		profiles, err := tx.GetProfiles(ProfileFilter{})
@@ -351,33 +399,45 @@ func (c *Cluster) InstanceList(filter *InstanceFilter, instanceFunc func(inst In
 			profilesByName[profile.Name] = profile
 		}
 
+		// Call the instanceFunc provided for each instance after the transaction has ended, as we don't know if
+		// the instanceFunc will be slow or may need to make additional DB queries.
+		for _, instance := range instances {
+			instanceFull, err := instance.ToInstanceFull(tx)
+			if err != nil {
+				return err
+			}
+
+			// If the instance's project does not have the profiles feature enabled,
+			// we fall back to the default project.
+			profilesProject := instance.Project
+			if !projectHasProfiles[profilesProject] {
+				profilesProject = "default" // Equivalent to project.Default constant.
+			}
+
+			apiProfiles := make([]api.Profile, len(instanceFull.Profiles))
+			for j, p := range instanceFull.Profiles {
+				profile := profilesByProjectAndName[profilesProject][p.Name]
+				apiProfile, err := profile.ToAPI(tx, nil)
+				if err != nil {
+					return err
+				}
+
+				apiProfiles[j] = *apiProfile
+			}
+
+			instanceProject := projectMap[instance.Project]
+			apiProject := instanceProject.ToAPI()
+
+			err = instanceFunc(*instanceFull, apiProject, apiProfiles)
+			if err != nil {
+				return err
+			}
+		}
+
 		return nil
 	})
 	if err != nil {
 		return err
-	}
-
-	// Call the instanceFunc provided for each instance after the transaction has ended, as we don't know if
-	// the instanceFunc will be slow or may need to make additional DB queries.
-	for _, instance := range instances {
-		profiles := make([]api.Profile, len(instance.Profiles))
-
-		// If the instance's project does not have the profiles feature enabled,
-		// we fall back to the default project.
-		profilesProject := instance.Project
-		if !projectHasProfiles[profilesProject] {
-			profilesProject = "default" // Equivalent to project.Default constant.
-		}
-
-		for j, name := range instance.Profiles {
-			profile := profilesByProjectAndName[profilesProject][name]
-			profiles[j] = *ProfileToAPI(&profile)
-		}
-
-		err = instanceFunc(instance, projectMap[instance.Project], profiles)
-		if err != nil {
-			return err
-		}
 	}
 
 	return nil

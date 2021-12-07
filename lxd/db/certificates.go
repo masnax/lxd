@@ -84,7 +84,7 @@ func (cert *Certificate) ToAPIType() string {
 }
 
 // ToAPI converts the database Certificate struct to an api.Certificate entry.
-func (cert *Certificate) ToAPI() api.Certificate {
+func (cert *Certificate) ToAPI(tx *ClusterTx) (*api.Certificate, error) {
 	resp := api.Certificate{}
 	resp.Fingerprint = cert.Fingerprint
 	resp.Certificate = cert.Certificate
@@ -92,8 +92,17 @@ func (cert *Certificate) ToAPI() api.Certificate {
 	resp.Restricted = cert.Restricted
 	resp.Type = cert.ToAPIType()
 
-	// TODO: fetch certificate projects and handle errors for filling API struct.
-	return resp
+	projects, err := tx.GetCertificateProjects(*cert)
+	if err != nil {
+		return nil, err
+	}
+
+	resp.Projects = make([]string, len(projects))
+	for i, p := range projects {
+		resp.Projects[i] = p.Name
+	}
+
+	return &resp, nil
 }
 
 // CertificateFilter specifies potential query parameter fields.
@@ -179,9 +188,28 @@ func (c *Cluster) DeleteCertificate(fingerprint string) error {
 }
 
 // UpdateCertificate updates a certificate in the db.
-func (c *Cluster) UpdateCertificate(fingerprint string, cert Certificate) error {
+func (c *Cluster) UpdateCertificate(fingerprint string, cert Certificate, projects []string) error {
 	err := c.Transaction(func(tx *ClusterTx) error {
-		return tx.UpdateCertificate(fingerprint, cert)
+		err := tx.UpdateCertificate(fingerprint, cert)
+		if err != nil {
+			return err
+		}
+
+		if len(projects) > 0 {
+			dbProjects := make([]Project, len(projects))
+			for i, p := range projects {
+				project, err := tx.GetProject(p)
+				if err != nil {
+					return err
+				}
+
+				dbProjects[i] = *project
+			}
+
+			return tx.UpdateCertificateProjects(cert, dbProjects)
+		}
+
+		return nil
 	})
 	return err
 }
