@@ -65,6 +65,10 @@ func (project *Project) Writable() ProjectPut {
 	return project.ProjectPut
 }
 
+func (project *Project) URI(apiVersion string) *URL {
+	return NewURL().Path(apiVersion, "projects", project.Name)
+}
+
 // ProjectState represents the current running state of a LXD project
 //
 // swagger:model

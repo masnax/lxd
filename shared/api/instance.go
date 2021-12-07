@@ -240,6 +240,10 @@ func (c Instance) IsActive() bool {
 	}
 }
 
+func (c *Instance) URI(apiVersion string, project string) *URL {
+	return NewURL().Path(apiVersion, "instances", c.Name).Project(project)
+}
+
 // InstanceSource represents the creation source for a new instance.
 //
 // swagger:model
