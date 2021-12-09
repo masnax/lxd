@@ -15,6 +15,7 @@ import (
 	"github.com/lxc/lxd/lxd/instance/instancetype"
 	"github.com/lxc/lxd/shared"
 	"github.com/lxc/lxd/shared/api"
+	"github.com/lxc/lxd/shared/osarch"
 	"github.com/pkg/errors"
 )
 
@@ -81,17 +82,22 @@ type InstanceFilter struct {
 	Type    *instancetype.Type
 }
 
-type InstanceFull struct {
-	Instance Instance
-	Profiles []Profile
-	Config   map[string]string
-	Devices  map[string]Device
-}
-
-func (inst Instance) ToInstanceFull(tx *ClusterTx) (*InstanceFull, error) {
+func (inst Instance) ToAPI(tx *ClusterTx) (*api.Instance, error) {
 	profiles, err := tx.GetInstanceProfiles(inst)
 	if err != nil {
 		return nil, err
+	}
+
+	apiProfiles := make([]api.Profile, len(profiles))
+	profileNames := make([]string, len(profiles))
+	for i, p := range profiles {
+		apiProfile, err := p.ToAPI(tx, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		apiProfiles[i] = *apiProfile
+		profileNames[i] = p.Name
 	}
 
 	config, err := tx.GetInstanceConfig(inst)
@@ -104,43 +110,65 @@ func (inst Instance) ToInstanceFull(tx *ClusterTx) (*InstanceFull, error) {
 		return nil, err
 	}
 
-	return &InstanceFull{
-		Instance: inst,
-		Profiles: profiles,
-		Config:   config,
-		Devices:  devices,
+	apiDevices := DevicesToAPI(devices)
+	expandedConfig := ExpandInstanceConfig(config, apiProfiles)
+	expandedDevices := ExpandInstanceDevices(apiDevices, apiProfiles)
+
+	archName, err := osarch.ArchitectureName(inst.Architecture)
+	if err != nil {
+		return nil, err
+	}
+
+	return &api.Instance{
+		InstancePut: api.InstancePut{
+			Architecture: archName,
+			Config:       config,
+			Ephemeral:    inst.Ephemeral,
+			Profiles:     profileNames,
+			Stateful:     inst.Stateful,
+			Description:  inst.Description,
+		},
+		CreatedAt:       inst.CreationDate,
+		ExpandedConfig:  expandedConfig,
+		ExpandedDevices: expandedDevices,
+		Name:            inst.Name,
+		LastUsedAt:      inst.LastUseDate.Time,
+		Location:        inst.Node,
+		Type:            inst.Type.String(),
 	}, nil
 }
 
 // InstanceToArgs is a convenience to convert an Instance db struct into the legacy InstanceArgs.
-func InstanceToArgs(inst *InstanceFull) InstanceArgs {
+func InstanceToArgs(id int, project string, inst api.Instance) (*InstanceArgs, error) {
+	instType, err := instancetype.New(inst.Type)
+	if err != nil {
+		return nil, err
+	}
+
+	arch, err := osarch.ArchitectureId(inst.Architecture)
+	if err != nil {
+		return nil, err
+	}
+
 	args := InstanceArgs{
-		ID:           inst.Instance.ID,
-		Project:      inst.Instance.Project,
-		Name:         inst.Instance.Name,
-		Node:         inst.Instance.Node,
-		Type:         inst.Instance.Type,
-		Snapshot:     inst.Instance.Snapshot,
-		Architecture: inst.Instance.Architecture,
-		Ephemeral:    inst.Instance.Ephemeral,
-		CreationDate: inst.Instance.CreationDate,
-		Stateful:     inst.Instance.Stateful,
-		LastUsedDate: inst.Instance.LastUseDate.Time,
-		Description:  inst.Instance.Description,
-		ExpiryDate:   inst.Instance.ExpiryDate.Time,
+		ID:           id,
+		Project:      project,
+		Name:         inst.Name,
+		Node:         inst.Location,
+		Type:         instType,
+		Snapshot:     false,
+		Architecture: arch,
+		Ephemeral:    inst.Ephemeral,
+		CreationDate: inst.CreatedAt,
+		Stateful:     inst.Stateful,
+		LastUsedDate: inst.LastUsedAt,
+		Description:  inst.Description,
+		Devices:      deviceConfig.NewDevices(inst.Devices),
 		Config:       inst.Config,
+		Profiles:     inst.Profiles,
 	}
 
-	profileNames := make([]string, len(inst.Profiles))
-	for i, profile := range inst.Profiles {
-		profileNames[i] = profile.Name
-	}
-
-	args.Profiles = profileNames
-	args.Devices = deviceConfig.NewDevices(DevicesToAPI(inst.Devices))
-
-	// TODO: fetch instance devices, config, and profiles, and handle errors if necessary.
-	return args
+	return &args, nil
 }
 
 // InstanceArgs is a value object holding all db-related details about an instance.
@@ -166,10 +194,6 @@ type InstanceArgs struct {
 	Profiles     []string
 	Stateful     bool
 	ExpiryDate   time.Time
-}
-
-func (i *Instance) ToAPI(tx *ClusterTx) (api.Instance, error) {
-	return api.Instance{}, nil
 }
 
 // InstanceTypeFilter returns an InstanceFilter populated with a valid instance type,
@@ -351,7 +375,7 @@ var ErrInstanceListStop = fmt.Errorf("search stopped")
 
 // InstanceList loads all instances across all projects and for each instance runs the instanceFunc passing in the
 // instance and it's project and profiles. Accepts optional filter argument to specify a subset of instances.
-func (c *Cluster) InstanceList(filter *InstanceFilter, instanceFunc func(inst InstanceFull, project api.Project, profiles []api.Profile) error) error {
+func (c *Cluster) InstanceList(filter *InstanceFilter, instanceFunc func(instanceID int, inst api.Instance, project api.Project, profiles []api.Profile) error) error {
 	var instances []Instance
 	projectMap := map[string]Project{}
 	projectHasProfiles := map[string]bool{}
@@ -402,7 +426,7 @@ func (c *Cluster) InstanceList(filter *InstanceFilter, instanceFunc func(inst In
 		// Call the instanceFunc provided for each instance after the transaction has ended, as we don't know if
 		// the instanceFunc will be slow or may need to make additional DB queries.
 		for _, instance := range instances {
-			instanceFull, err := instance.ToInstanceFull(tx)
+			instanceFull, err := instance.ToAPI(tx)
 			if err != nil {
 				return err
 			}
@@ -416,7 +440,7 @@ func (c *Cluster) InstanceList(filter *InstanceFilter, instanceFunc func(inst In
 
 			apiProfiles := make([]api.Profile, len(instanceFull.Profiles))
 			for j, p := range instanceFull.Profiles {
-				profile := profilesByProjectAndName[profilesProject][p.Name]
+				profile := profilesByProjectAndName[profilesProject][p]
 				apiProfile, err := profile.ToAPI(tx, nil)
 				if err != nil {
 					return err
@@ -428,7 +452,7 @@ func (c *Cluster) InstanceList(filter *InstanceFilter, instanceFunc func(inst In
 			instanceProject := projectMap[instance.Project]
 			apiProject := instanceProject.ToAPI()
 
-			err = instanceFunc(*instanceFull, apiProject, apiProfiles)
+			err = instanceFunc(instance.ID, *instanceFull, apiProject, apiProfiles)
 			if err != nil {
 				return err
 			}

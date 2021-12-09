@@ -372,57 +372,6 @@ func fetchInstanceDatabaseObject(s *state.State, project, name string) (*db.Inst
 	return container, nil
 }
 
-func fetchInstanceFull(s *state.State, project, name string) (*db.InstanceFull, error) {
-	var instanceFull *db.InstanceFull
-	err := s.Cluster.Transaction(func(tx *db.ClusterTx) error {
-		if strings.Contains(name, shared.SnapshotDelimiter) {
-			parts := strings.SplitN(name, shared.SnapshotDelimiter, 2)
-			instanceName := parts[0]
-			snapshotName := parts[1]
-
-			instance, err := tx.GetInstance(project, instanceName)
-			if err != nil {
-				return errors.Wrapf(err, "Failed to fetch instance %q in project %q", name, project)
-			}
-
-			profiles, err := tx.GetInstanceProfiles(*instance)
-			if err != nil {
-				return err
-			}
-
-			snapshot, err := tx.GetInstanceSnapshot(project, instanceName, snapshotName)
-			if err != nil {
-				return errors.Wrapf(err, "Failed to fetch snapshot %q of instance %q in project %q", snapshotName, instanceName, project)
-			}
-
-			snapshotFull, err := snapshot.ToInstanceFull(tx, instance, profiles)
-			if err != nil {
-				return err
-			}
-
-			instanceFull = snapshotFull
-		} else {
-			var err error
-			instance, err := tx.GetInstance(project, name)
-			if err != nil {
-				return errors.Wrapf(err, "Failed to fetch instance %q in project %q", name, project)
-			}
-
-			instanceFull, err = instance.ToInstanceFull(tx)
-			if err != nil {
-				return err
-			}
-		}
-
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return instanceFull, nil
-}
-
 // LoadInstanceDatabaseObject loads a db.Instance object, accounting for snapshots.
 func LoadInstanceDatabaseObject(tx *db.ClusterTx, project, name string) (*db.Instance, error) {
 	var container *db.Instance
@@ -458,13 +407,53 @@ func LoadInstanceDatabaseObject(tx *db.ClusterTx, project, name string) (*db.Ins
 // LoadByProjectAndName loads an instance by project and name.
 func LoadByProjectAndName(s *state.State, project, name string) (Instance, error) {
 	// Get the DB record
-	container, err := fetchInstanceFull(s, project, name)
+
+	var id int
+	var instance *api.Instance
+	err := s.Cluster.Transaction(func(tx *db.ClusterTx) error {
+		if strings.Contains(name, shared.SnapshotDelimiter) {
+			parts := strings.SplitN(name, shared.SnapshotDelimiter, 2)
+			instanceName := parts[0]
+			snapshotName := parts[1]
+
+			inst, err := tx.GetInstance(project, instanceName)
+			if err != nil {
+				return errors.Wrapf(err, "Failed to fetch instance %q in project %q", name, project)
+			}
+
+			profiles, err := tx.GetInstanceProfiles(*inst)
+			if err != nil {
+				return err
+			}
+
+			snapshot, err := tx.GetInstanceSnapshot(project, instanceName, snapshotName)
+			if err != nil {
+				return errors.Wrapf(err, "Failed to fetch snapshot %q of instance %q in project %q", snapshotName, instanceName, project)
+			}
+
+			id = snapshot.ID
+			instance, err = snapshot.ToInstanceAPI(tx, inst, profiles)
+			return err
+		}
+
+		inst, err := tx.GetInstance(project, name)
+		if err != nil {
+			return errors.Wrapf(err, "Failed to fetch instance %q in project %q", name, project)
+		}
+
+		id = inst.ID
+		instance, err = inst.ToAPI(tx)
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	args := db.InstanceToArgs(container)
-	inst, err := Load(s, args, nil)
+	args, err := db.InstanceToArgs(id, project, *instance)
+	if err != nil {
+		return nil, err
+	}
+	inst, err := Load(s, *args, nil)
 	if err != nil {
 		return nil, errors.Wrap(err, "Failed to load instance")
 	}
@@ -474,16 +463,21 @@ func LoadByProjectAndName(s *state.State, project, name string) (Instance, error
 
 // LoadAllInternal loads a list of db instances into a list of instances.
 func LoadAllInternal(s *state.State, tx *db.ClusterTx, dbInstances []db.Instance) ([]Instance, error) {
+	// TODO: add profiles to instance.ToAPI so that we dont need to regenerate if we want it.
 	instances := []Instance{}
 	for _, inst := range dbInstances {
-		fullInst, err := inst.ToInstanceFull(tx)
+		apiInst, err := inst.ToAPI(tx)
 		if err != nil {
 			return nil, err
 		}
 
-		apiProfiles := make([]api.Profile, len(fullInst.Profiles))
-		for i, p := range fullInst.Profiles {
-			apiProfile, err := p.ToAPI(tx, nil)
+		apiProfiles := make([]api.Profile, len(apiInst.Profiles))
+		for i, name := range apiInst.Profiles {
+			profile, err := tx.GetProfile(inst.Project, name)
+			if err != nil {
+				return nil, err
+			}
+			apiProfile, err := profile.ToAPI(tx, nil)
 			if err != nil {
 				return nil, err
 			}
@@ -491,7 +485,12 @@ func LoadAllInternal(s *state.State, tx *db.ClusterTx, dbInstances []db.Instance
 			apiProfiles[i] = *apiProfile
 		}
 
-		instance, err := Load(s, db.InstanceToArgs(fullInst), apiProfiles)
+		args, err := db.InstanceToArgs(inst.ID, inst.Project, *apiInst)
+		if err != nil {
+			return nil, err
+		}
+
+		instance, err := Load(s, *args, apiProfiles)
 		if err != nil {
 			return nil, err
 		}
@@ -1003,9 +1002,9 @@ func CreateInternal(s *state.State, args db.InstanceArgs, clearLogDir bool, volu
 		args.LastUsedDate = time.Unix(0, 0).UTC()
 	}
 
-	var dbInst *db.InstanceFull
+	var instanceID int
+	var apiInst *api.Instance
 	var op *operationlock.InstanceOperation
-
 	err = s.Cluster.Transaction(func(tx *db.ClusterTx) error {
 		node, err := tx.GetLocalNodeName()
 		if err != nil {
@@ -1071,9 +1070,9 @@ func CreateInternal(s *state.State, args db.InstanceArgs, clearLogDir bool, volu
 				return err
 			}
 
-			dbInst, err = s.ToInstanceFull(tx, instance, profiles)
-
-			return nil
+			instanceID = s.ID
+			apiInst, err = s.ToInstanceAPI(tx, instance, profiles)
+			return err
 		}
 
 		// Create the instance entry.
@@ -1125,21 +1124,22 @@ func CreateInternal(s *state.State, args db.InstanceArgs, clearLogDir bool, volu
 		}
 
 		// Read back the instance, to get ID and creation time.
-		dbRow, err := tx.GetInstance(args.Project, args.Name)
+		dbInst, err := tx.GetInstance(args.Project, args.Name)
 		if err != nil {
 			return errors.Wrap(err, "Fetch created instance from the database")
 		}
 
-		dbInst, err = dbRow.ToInstanceFull(tx)
+		instanceID = dbInst.ID
+		apiInst, err = dbInst.ToAPI(tx)
 		if err != nil {
 			return err
 		}
 
-		if dbInst.Instance.ID < 1 {
-			return errors.Wrapf(err, "Unexpected instance database ID %d", dbInst.Instance.ID)
+		if dbInst.ID < 1 {
+			return errors.Wrapf(err, "Unexpected instance database ID %d", dbInst.ID)
 		}
 
-		op, err = operationlock.Create(dbInst.Instance.Project, dbInst.Instance.Name, "create", false, false)
+		op, err = operationlock.Create(dbInst.Project, dbInst.Name, "create", false, false)
 		if err != nil {
 			return err
 		}
@@ -1161,12 +1161,16 @@ func CreateInternal(s *state.State, args db.InstanceArgs, clearLogDir bool, volu
 		return nil, nil, err
 	}
 
-	revert.Add(func() { s.Cluster.DeleteInstance(dbInst.Instance.Project, dbInst.Instance.Name) })
+	revert.Add(func() { s.Cluster.DeleteInstance(args.Project, apiInst.Name) })
 
-	args = db.InstanceToArgs(dbInst)
-	inst, err := Create(s, args, volumeConfig, revert)
+	newArgs, err := db.InstanceToArgs(instanceID, args.Project, *apiInst)
 	if err != nil {
-		logger.Error("Failed initialising instance", log.Ctx{"project": args.Project, "instance": args.Name, "type": args.Type, "err": err})
+		return nil, nil, err
+	}
+
+	inst, err := Create(s, *newArgs, volumeConfig, revert)
+	if err != nil {
+		logger.Error("Failed initialising instance", log.Ctx{"project": newArgs.Project, "instance": newArgs.Name, "type": newArgs.Type, "err": err})
 		return nil, nil, errors.Wrap(err, "Failed initialising instance")
 	}
 
@@ -1236,16 +1240,16 @@ func MoveTemporaryName(inst Instance) string {
 
 // IsSameLogicalInstance returns true if the supplied Instance and db.Instance have the same project and name or
 // if they have the same volatile.uuid values.
-func IsSameLogicalInstance(inst Instance, dbInst *db.InstanceFull) bool {
+func IsSameLogicalInstance(inst Instance, apiInst *api.Instance, project api.Project) bool {
 	// Instance name is unique within a project.
-	if dbInst.Instance.Project == inst.Project() && dbInst.Instance.Name == inst.Name() {
+	if project.Name == inst.Project() && apiInst.Name == inst.Name() {
 		return true
 	}
 
 	// Instance UUID is expected to be globally unique (which then allows for the *temporary* existence of
 	// duplicate instances of different names with the same volatile.uuid in order to accommodate moving
 	// instances between projects and storage pools without triggering duplicate resource errors).
-	if dbInst.Config["volatile.uuid"] == inst.LocalConfig()["volatile.uuid"] {
+	if apiInst.Config["volatile.uuid"] == inst.LocalConfig()["volatile.uuid"] {
 		return true
 	}
 

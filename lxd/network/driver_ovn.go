@@ -2701,7 +2701,7 @@ func (n *ovn) Update(newNetwork api.NetworkPut, targetNode string, clientType re
 		var localNICRoutes []net.IPNet
 
 		// Apply ACL changes to running instance NICs that use this network.
-		err = usedByInstanceDevices(n.state, n.project, n.name, func(inst db.InstanceFull, nicName string, nicConfig map[string]string) error {
+		err = usedByInstanceDevices(n.state, n.project, n.name, func(instanceID int, inst api.Instance, instProject api.Project, nicName string, nicConfig map[string]string) error {
 			nicACLs := util.SplitNTrimSpace(nicConfig["security.acls"], ",", -1, true)
 
 			// Get logical port UUID and name.
@@ -3683,10 +3683,10 @@ func (n *ovn) ovnNetworkExternalSubnets(ovnProjectNetworksWithOurUplink map[stri
 func (n *ovn) ovnNICExternalRoutes(ovnProjectNetworksWithOurUplink map[string][]*api.Network) ([]externalSubnetUsage, error) {
 	externalRoutes := make([]externalSubnetUsage, 0)
 
-	err := n.state.Cluster.InstanceList(nil, func(inst db.InstanceFull, p api.Project, profiles []api.Profile) error {
+	err := n.state.Cluster.InstanceList(nil, func(instanceID int, inst api.Instance, p api.Project, profiles []api.Profile) error {
 		// Get the instance's effective network project name.
 		instNetworkProject := project.NetworkProjectFromRecord(p)
-		devices := db.ExpandInstanceDevices(db.DevicesToAPI(inst.Devices), profiles)
+		devices := db.ExpandInstanceDevices(inst.Devices, profiles)
 
 		// Iterate through each of the instance's devices, looking for OVN NICs that are linked to networks
 		// that use our uplink.
@@ -3714,8 +3714,8 @@ func (n *ovn) ovnNICExternalRoutes(ovnProjectNetworksWithOurUplink map[string][]
 						subnet:          *ipNet,
 						networkProject:  instNetworkProject,
 						networkName:     devConfig["network"],
-						instanceProject: inst.Instance.Project,
-						instanceName:    inst.Instance.Name,
+						instanceProject: p.Name,
+						instanceName:    inst.Name,
 						instanceDevice:  devName,
 					})
 				}
@@ -3800,7 +3800,7 @@ func (n *ovn) handleDependencyChange(uplinkName string, uplinkConfig map[string]
 
 			// Find all instance NICs that use this network, and re-add the logical OVN instance port.
 			// This will restore the l2proxy DNAT_AND_SNAT rules.
-			err = n.state.Cluster.InstanceList(nil, func(inst db.InstanceFull, p api.Project, profiles []api.Profile) error {
+			err = n.state.Cluster.InstanceList(nil, func(instanceID int, inst api.Instance, p api.Project, profiles []api.Profile) error {
 				// Get the instance's effective network project name.
 				instNetworkProject := project.NetworkProjectFromRecord(p)
 
@@ -3810,7 +3810,7 @@ func (n *ovn) handleDependencyChange(uplinkName string, uplinkConfig map[string]
 					return nil
 				}
 
-				devices := db.ExpandInstanceDevices(db.DevicesToAPI(inst.Devices), profiles)
+				devices := db.ExpandInstanceDevices(inst.Devices, profiles)
 
 				// Iterate through each of the instance's devices, looking for NICs that are linked
 				// this network.
@@ -3833,16 +3833,16 @@ func (n *ovn) handleDependencyChange(uplinkName string, uplinkConfig map[string]
 					}
 
 					// Re-add logical switch port to apply the l2proxy DNAT_AND_SNAT rules.
-					n.logger.Debug("Re-adding instance OVN NIC port to apply ingress mode changes", log.Ctx{"project": inst.Instance.Project, "instance": inst.Instance.Name, "device": devName})
+					n.logger.Debug("Re-adding instance OVN NIC port to apply ingress mode changes", log.Ctx{"project": p.Name, "instance": inst.Name, "device": devName})
 					_, err = n.InstanceDevicePortSetup(&OVNInstanceNICSetupOpts{
 						InstanceUUID: instanceUUID,
-						DNSName:      inst.Instance.Name,
+						DNSName:      inst.Name,
 						DeviceName:   devName,
 						DeviceConfig: devConfig,
 						UplinkConfig: uplinkConfig,
 					}, nil)
 					if err != nil {
-						n.logger.Error("Failed re-adding instance OVN NIC port", log.Ctx{"project": inst.Instance.Project, "instance": inst.Instance.Name, "err": err})
+						n.logger.Error("Failed re-adding instance OVN NIC port", log.Ctx{"project": p.Name, "instance": inst.Name, "err": err})
 						continue
 					}
 				}
@@ -4305,7 +4305,7 @@ func (n *ovn) PeerCreate(peer api.NetworkPeersPost) error {
 		var localNICRoutes []net.IPNet
 
 		// Get routes on instance NICs connected to local network to be added as routes to target network.
-		err = usedByInstanceDevices(n.state, n.Project(), n.Name(), func(inst db.InstanceFull, nicName string, nicConfig map[string]string) error {
+		err = usedByInstanceDevices(n.state, n.Project(), n.Name(), func(instanceID int, inst api.Instance, instProject api.Project, nicName string, nicConfig map[string]string) error {
 			instancePortName := n.getInstanceDevicePortName(inst.Config["volatile.uuid"], nicName)
 			if _, found := activeLocalNICPorts[instancePortName]; !found {
 				return nil // Don't add config for instance NICs that aren't started.
@@ -4448,7 +4448,7 @@ func (n *ovn) peerSetup(client *openvswitch.OVN, targetOVNNet *ovn, opts openvsw
 	}
 
 	// Get routes on instance NICs connected to target network to be added as routes to local network.
-	err = usedByInstanceDevices(n.state, targetOVNNet.Project(), targetOVNNet.Name(), func(inst db.InstanceFull, nicName string, nicConfig map[string]string) error {
+	err = usedByInstanceDevices(n.state, targetOVNNet.Project(), targetOVNNet.Name(), func(instanceID int, inst api.Instance, instProject api.Project, nicName string, nicConfig map[string]string) error {
 		instancePortName := targetOVNNet.getInstanceDevicePortName(inst.Config["volatile.uuid"], nicName)
 		if _, found := activeTargetNICPorts[instancePortName]; !found {
 			return nil // Don't add config for instance NICs that aren't started.

@@ -238,12 +238,16 @@ func getProfileInstancesInfo(cluster *db.Cluster, projectName string, profileNam
 					return err
 				}
 
-				instFull, err := inst.ToInstanceFull(tx)
+				instFull, err := inst.ToAPI(tx)
 				if err != nil {
 					return err
 				}
 
-				instances = append(instances, db.InstanceToArgs(instFull))
+				args, err := db.InstanceToArgs(inst.ID, inst.Project, *instFull)
+				if err != nil {
+					return err
+				}
+				instances = append(instances, *args)
 			}
 		}
 

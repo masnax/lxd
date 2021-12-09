@@ -442,8 +442,8 @@ func patchVMRenameUUIDKey(name string, d *Daemon) error {
 	oldUUIDKey := "volatile.vm.uuid"
 	newUUIDKey := "volatile.uuid"
 
-	return d.State().Cluster.InstanceList(nil, func(inst db.InstanceFull, p api.Project, profiles []api.Profile) error {
-		if inst.Instance.Type != instancetype.VM {
+	return d.State().Cluster.InstanceList(nil, func(instanceID int, inst api.Instance, p api.Project, profiles []api.Profile) error {
+		if inst.Type != instancetype.VM.String() {
 			return nil
 		}
 
@@ -455,14 +455,14 @@ func patchVMRenameUUIDKey(name string, d *Daemon) error {
 					newUUIDKey: uuid,
 				}
 
-				logger.Debugf("Renaming config key %q to %q for VM %q (Project %q)", oldUUIDKey, newUUIDKey, inst.Instance.Name, inst.Instance.Project)
-				err := tx.UpdateInstanceConfig(int64(inst.Instance.ID), changes)
+				logger.Debugf("Renaming config key %q to %q for VM %q (Project %q)", oldUUIDKey, newUUIDKey, inst.Name, p.Name)
+				err := tx.UpdateInstanceConfig(int64(instanceID), changes)
 				if err != nil {
-					return errors.Wrapf(err, "Failed renaming config key %q to %q for VM %q (Project %q)", oldUUIDKey, newUUIDKey, inst.Instance.Name, inst.Instance.Project)
+					return errors.Wrapf(err, "Failed renaming config key %q to %q for VM %q (Project %q)", oldUUIDKey, newUUIDKey, inst.Name, p.Name)
 				}
 			}
 
-			snaps, err := tx.GetInstanceSnapshotsWithName(inst.Instance.Project, inst.Instance.Name)
+			snaps, err := tx.GetInstanceSnapshotsWithName(p.Name, inst.Name)
 			if err != nil {
 				return err
 			}

@@ -67,8 +67,8 @@ func RandomDevName(prefix string) string {
 }
 
 // usedByInstanceDevices looks for instance NIC devices using the network and runs the supplied usageFunc for each.
-func usedByInstanceDevices(s *state.State, networkProjectName string, networkName string, usageFunc func(inst db.InstanceFull, nicName string, nicConfig map[string]string) error) error {
-	return s.Cluster.InstanceList(nil, func(inst db.InstanceFull, p api.Project, profiles []api.Profile) error {
+func usedByInstanceDevices(s *state.State, networkProjectName string, networkName string, usageFunc func(instanceID int, inst api.Instance, instProject api.Project, nicName string, nicConfig map[string]string) error) error {
+	return s.Cluster.InstanceList(nil, func(instanceID int, inst api.Instance, p api.Project, profiles []api.Profile) error {
 		// Get the instance's effective network project name.
 		instNetworkProject := project.NetworkProjectFromRecord(p)
 
@@ -78,10 +78,10 @@ func usedByInstanceDevices(s *state.State, networkProjectName string, networkNam
 		}
 
 		// Look for NIC devices using this network.
-		devices := db.ExpandInstanceDevices(db.DevicesToAPI(inst.Devices), profiles)
+		devices := db.ExpandInstanceDevices(inst.Devices, profiles)
 		for devName, devConfig := range devices {
 			if isInUseByDevice(networkName, devConfig) {
-				err := usageFunc(inst, devName, devConfig)
+				err := usageFunc(instanceID, inst, p, devName, devConfig)
 				if err != nil {
 					return err
 				}
@@ -191,8 +191,8 @@ func UsedBy(s *state.State, networkProjectName string, networkID int64, networkN
 	}
 
 	// Check if any instance devices use this network.
-	err = usedByInstanceDevices(s, networkProjectName, networkName, func(inst db.InstanceFull, nicName string, nicConfig map[string]string) error {
-		usedBy = append(usedBy, api.NewURL().Path(version.APIVersion, "instances", inst.Instance.Name).Project(inst.Instance.Project).String())
+	err = usedByInstanceDevices(s, networkProjectName, networkName, func(instanceID int, inst api.Instance, instProject api.Project, nicName string, nicConfig map[string]string) error {
+		usedBy = append(usedBy, inst.URI(version.APIVersion, instProject.Name).String())
 
 		if firstOnly {
 			// No need to consider other devices.

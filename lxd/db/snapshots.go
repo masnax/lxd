@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/lxc/lxd/shared"
+	"github.com/lxc/lxd/shared/api"
 )
 
 // Code generation directives.
@@ -74,7 +75,7 @@ func InstanceSnapshotToInstance(instance *Instance, snapshot *InstanceSnapshot) 
 	// TODO: fetch instance devices and config, and handle errors if necessary.
 }
 
-func (s InstanceSnapshot) ToInstanceFull(tx *ClusterTx, instance *Instance, profiles []Profile) (*InstanceFull, error) {
+func (s InstanceSnapshot) ToInstanceAPI(tx *ClusterTx, instance *Instance, profiles []Profile) (*api.Instance, error) {
 	return nil, nil
 }
 

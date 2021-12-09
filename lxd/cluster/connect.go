@@ -158,11 +158,11 @@ func ConnectIfVolumeIsRemote(s *state.State, poolName string, projectName string
 		if remoteInstance != nil {
 			var instNode db.NodeInfo
 			err := s.Cluster.Transaction(func(tx *db.ClusterTx) error {
-				instNode, err = tx.GetNodeByName(remoteInstance.Instance.Node)
+				instNode, err = tx.GetNodeByName(remoteInstance.Location)
 				return err
 			})
 			if err != nil {
-				return nil, errors.Wrapf(err, "Failed getting cluster member info for %q", remoteInstance.Instance.Node)
+				return nil, errors.Wrapf(err, "Failed getting cluster member info for %q", remoteInstance.Location)
 			}
 
 			// Replace node list with instance's cluster member node (which might be local member).
