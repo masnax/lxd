@@ -902,9 +902,9 @@ func instancesPost(d *Daemon, r *http.Request) response.Response {
 			}
 
 			// Validate restrictions.
-			if shared.IsTrue(p.Config["restricted"]) {
+			if shared.IsTrue(config["restricted"]) {
 				found := false
-				for _, entry := range strings.Split(p.Config["restricted.cluster.groups"], ",") {
+				for _, entry := range strings.Split(config["restricted.cluster.groups"], ",") {
 					entry = strings.TrimSpace(entry)
 
 					if group == entry {
