@@ -41,7 +41,6 @@ type Profile struct {
 	Project     string `db:"primary=yes&join=projects.name"`
 	Name        string `db:"primary=yes"`
 	Description string `db:"coalesce=''"`
-	UsedBy      []string
 }
 
 // ProfileToAPI is a convenience to convert a Profile db struct into
@@ -74,27 +73,6 @@ type ProfileFilter struct {
 	ID      *int
 	Project *string
 	Name    *string
-}
-
-// GetProfileUsedBy returns all the instances that use the given profile.
-func (c *ClusterTx) GetProfileUsedBy(profile Profile) ([]string, error) {
-	usedBy := []string{}
-
-	profileInstances, err := c.GetProfileInstances()
-	if err != nil {
-		return nil, err
-	}
-
-	for _, instanceID := range profileInstances[profile.ID] {
-		instanceURIs, err := c.GetInstanceURIs(InstanceFilter{ID: &instanceID})
-		if err != nil {
-			return nil, err
-		}
-
-		usedBy = append(usedBy, instanceURIs...)
-	}
-
-	return usedBy, nil
 }
 
 // GetProjectProfileNames returns slice of profile names keyed on the project they belong to.
