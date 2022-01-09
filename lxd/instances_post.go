@@ -12,7 +12,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/dustinkirkland/golang-petname"
+	petname "github.com/dustinkirkland/golang-petname"
 	"github.com/gorilla/websocket"
 	log "gopkg.in/inconshreveable/log15.v2"
 
@@ -72,13 +72,24 @@ func createFromImage(d *Daemon, r *http.Request, projectName string, req *api.In
 		var info *api.Image
 		if req.Source.Server != "" {
 			var autoUpdate bool
-			p, err := d.cluster.GetProject(projectName)
+			var p *db.Project
+			var config map[string]string
+
+			err := d.cluster.Transaction(func(tx *db.ClusterTx) error {
+				p, err = tx.GetProject(projectName)
+				if err != nil {
+					return err
+				}
+
+				config, err = tx.GetProjectConfig(p.ID)
+				return err
+			})
 			if err != nil {
 				return err
 			}
 
-			if p.Config["images.auto_update_cached"] != "" {
-				autoUpdate = shared.IsTrue(p.Config["images.auto_update_cached"])
+			if config["images.auto_update_cached"] != "" {
+				autoUpdate = shared.IsTrue(config["images.auto_update_cached"])
 			} else {
 				autoUpdate, err = cluster.ConfigGetBool(d.cluster, "images.auto_update_cached")
 				if err != nil {
@@ -840,10 +851,16 @@ func instancesPost(d *Daemon, r *http.Request) response.Response {
 	var targetProject *db.Project
 
 	targetNode := queryParam(r, "target")
+	var config map[string]string
 	err = d.cluster.Transaction(func(tx *db.ClusterTx) error {
 		targetProject, err = tx.GetProject(targetProjectName)
 		if err != nil {
 			return fmt.Errorf("Failed loading project: %w", err)
+		}
+
+		config, err = tx.GetProjectConfig(targetProject.ID)
+		if err != nil {
+			return err
 		}
 
 		return project.CheckClusterTargetRestriction(tx, r, targetProject, targetNode)
@@ -873,8 +890,8 @@ func instancesPost(d *Daemon, r *http.Request) response.Response {
 
 		// Load restricted groups from project.
 		var allowedGroups []string
-		if !isClusterNotification(r) && shared.IsTrue(targetProject.Config["restricted"]) {
-			allowedGroups = util.SplitNTrimSpace(targetProject.Config["restricted.cluster.groups"], ",", -1, true)
+		if !isClusterNotification(r) && shared.IsTrue(config["restricted"]) {
+			allowedGroups = util.SplitNTrimSpace(config["restricted.cluster.groups"], ",", -1, true)
 		} else {
 			allowedGroups = nil
 		}
@@ -900,7 +917,7 @@ func instancesPost(d *Daemon, r *http.Request) response.Response {
 			}
 
 			// Validate restrictions.
-			if !isClusterNotification(r) && shared.IsTrue(targetProject.Config["restricted"]) {
+			if !isClusterNotification(r) && shared.IsTrue(config["restricted"]) {
 				found := false
 
 				for _, entry := range allowedGroups {
@@ -923,8 +940,8 @@ func instancesPost(d *Daemon, r *http.Request) response.Response {
 
 		err = d.cluster.Transaction(func(tx *db.ClusterTx) error {
 			defaultArch := ""
-			if targetProject.Config["images.default_architecture"] != "" {
-				defaultArch = targetProject.Config["images.default_architecture"]
+			if config["images.default_architecture"] != "" {
+				defaultArch = config["images.default_architecture"]
 			} else {
 				config, err := cluster.ConfigLoad(tx)
 				if err != nil {
