@@ -5,7 +5,6 @@ package db
 
 import (
 	"database/sql"
-	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -674,70 +673,101 @@ func (c *Cluster) GetStoragePoolID(poolName string) (int64, error) {
 //
 // The pool must be in the created stated, not pending.
 func (c *Cluster) GetStoragePool(poolName string) (int64, *api.StoragePool, map[int64]StoragePoolNode, error) {
-	return c.getStoragePool(true, "name=?", poolName)
+	var poolID int64
+	var storagePool *api.StoragePool
+	var nodes map[int64]StoragePoolNode
+	err := c.Transaction(func(tx *ClusterTx) error {
+		var err error
+		poolID, storagePool, nodes, err = tx.getStoragePool(true, "name=?", poolName)
+		return err
+	})
+	if err != nil {
+		return -1, nil, nil, err
+	}
+	return poolID, storagePool, nodes, nil
 }
 
 // GetStoragePoolInAnyState returns the storage pool with the given name.
 //
 // The pool can be in any state.
 func (c *Cluster) GetStoragePoolInAnyState(name string) (int64, *api.StoragePool, map[int64]StoragePoolNode, error) {
+	var poolID int64
+	var storagePool *api.StoragePool
+	var nodes map[int64]StoragePoolNode
+	err := c.Transaction(func(tx *ClusterTx) error {
+		var err error
+		poolID, storagePool, nodes, err = tx.GetStoragePoolInAnyState(name)
+		return err
+	})
+	if err != nil {
+		return -1, nil, nil, err
+	}
+	return poolID, storagePool, nodes, nil
+}
+
+// GetStoragePoolInAnyState returns the storage pool with the given name.
+//
+// The pool can be in any state.
+func (c *ClusterTx) GetStoragePoolInAnyState(name string) (int64, *api.StoragePool, map[int64]StoragePoolNode, error) {
 	return c.getStoragePool(false, "name=?", name)
 }
 
 // GetStoragePoolWithID returns the storage pool with the given ID.
 func (c *Cluster) GetStoragePoolWithID(poolID int) (int64, *api.StoragePool, map[int64]StoragePoolNode, error) {
-	return c.getStoragePool(true, "id=?", poolID)
+	var id int64
+	var storagePool *api.StoragePool
+	var nodes map[int64]StoragePoolNode
+	err := c.Transaction(func(tx *ClusterTx) error {
+		var err error
+		id, storagePool, nodes, err = tx.getStoragePool(true, "name=?", poolID)
+		return err
+	})
+	if err != nil {
+		return -1, nil, nil, err
+	}
+	return id, storagePool, nodes, nil
 }
 
 // GetStoragePool returns a single storage pool.
-func (c *Cluster) getStoragePool(onlyCreated bool, where string, args ...interface{}) (int64, *api.StoragePool, map[int64]StoragePoolNode, error) {
+func (c *ClusterTx) getStoragePool(onlyCreated bool, where string, args ...interface{}) (int64, *api.StoragePool, map[int64]StoragePoolNode, error) {
+	poolID := int64(-1)
+	var state StoragePoolState
 	var err error
+
 	var q *strings.Builder = &strings.Builder{}
 	q.WriteString("SELECT id, name, driver, description, state FROM storage_pools WHERE ")
 	q.WriteString(where)
-
 	if onlyCreated {
 		q.WriteString(" AND state=?")
 		args = append(args, storagePoolCreated)
 	}
 
-	poolID := int64(-1)
 	var pool api.StoragePool
 	var nodes map[int64]StoragePoolNode
-
-	err = c.Transaction(func(tx *ClusterTx) error {
-		var state StoragePoolState
-
-		err = tx.tx.QueryRow(q.String(), args...).Scan(&poolID, &pool.Name, &pool.Driver, &pool.Description, &state)
-		if err != nil {
-			return err
-		}
-
-		pool.Status = StoragePoolStateToAPIStatus(state)
-
-		err = c.getStoragePoolConfig(tx, poolID, &pool)
-		if err != nil {
-			return err
-		}
-
-		nodes, err = tx.storagePoolNodes(poolID)
-		if err != nil {
-			return err
-		}
-
-		pool.Locations = make([]string, 0, len(nodes))
-		for _, node := range nodes {
-			pool.Locations = append(pool.Locations, node.Name)
-		}
-
-		return nil
-	})
+	err = c.tx.QueryRow(q.String(), args...).Scan(&poolID, &pool.Name, &pool.Driver, &pool.Description, &state)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if err == sql.ErrNoRows {
 			return -1, nil, nil, ErrNoSuchObject
 		}
 
 		return -1, nil, nil, err
+	}
+
+	pool.Status = StoragePoolStateToAPIStatus(state)
+
+	pool.Config, err = c.getStoragePoolConfig(poolID)
+	if err != nil {
+		return -1, nil, nil, err
+	}
+
+	nodes, err = c.storagePoolNodes(poolID)
+	if err != nil {
+		return -1, nil, nil, err
+	}
+
+	pool.Locations = make([]string, 0, len(nodes))
+	for _, node := range nodes {
+		pool.Locations = append(pool.Locations, node.Name)
 	}
 
 	return poolID, &pool, nodes, nil
@@ -777,29 +807,47 @@ func (c *Cluster) StoragePoolNodes(poolID int64) (map[int64]StoragePoolNode, err
 	return nodes, nil
 }
 
-// getStoragePoolConfig populates the config map of the Storage pool with the given ID.
-func (c *Cluster) getStoragePoolConfig(tx *ClusterTx, poolID int64, pool *api.StoragePool) error {
-	q := "SELECT key, value FROM storage_pools_config WHERE storage_pool_id=? AND (node_id=? OR node_id IS NULL)"
+// Return the config of a storage pool.
+func (c *Cluster) getStoragePoolConfig(poolID int64) (map[string]string, error) {
+	var config map[string]string
+	err := c.Transaction(func(tx *ClusterTx) error {
+		var err error
+		config, err = tx.getStoragePoolConfig(poolID)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
 
-	pool.Config = map[string]string{}
+	return config, nil
+}
 
-	return tx.QueryScan(q, func(scan func(dest ...interface{}) error) error {
-		var key, value string
+// Return the config of a storage pool.
+func (c *ClusterTx) getStoragePoolConfig(poolID int64) (map[string]string, error) {
+	var key, value string
+	query := "SELECT key, value FROM storage_pools_config WHERE storage_pool_id=? AND (node_id=? OR node_id IS NULL)"
+	inargs := []interface{}{poolID, c.nodeID}
+	outargs := []interface{}{key, value}
 
-		err := scan(&key, &value)
-		if err != nil {
-			return err
-		}
+	results, err := doDbQueryScan(c.tx, query, inargs, outargs)
+	if err != nil {
+		return nil, err
+	}
 
-		_, found := pool.Config[key]
+	config := map[string]string{}
+	for _, r := range results {
+		key := r[0].(string)
+		value := r[1].(string)
+
+		_, found := config[key]
 		if found {
-			return fmt.Errorf("Duplicate config row found for key %q for storage pool ID %d", key, poolID)
+			return nil, fmt.Errorf("Duplicate config row found for key %q for storage pool ID %d", key, poolID)
 		}
 
-		pool.Config[key] = value
+		config[key] = value
+	}
 
-		return nil
-	}, poolID, c.nodeID)
+	return config, nil
 }
 
 // CreateStoragePool creates new storage pool. Also creates a local node entry with state storagePoolPending.
@@ -964,15 +1012,21 @@ func (c *Cluster) IsRemoteStorage(poolID int64) (bool, error) {
 	isRemoteStorage := false
 
 	err := c.Transaction(func(tx *ClusterTx) error {
-		driver, err := tx.GetStoragePoolDriver(poolID)
-		if err != nil {
-			return err
-		}
-
-		isRemoteStorage = shared.StringInSlice(driver, StorageRemoteDriverNames())
-
-		return nil
+		var err error
+		isRemoteStorage, err = tx.IsRemoteStorage(poolID)
+		return err
 	})
 
+	return isRemoteStorage, err
+}
+
+// IsRemoteStorage return whether a given pool is backed by remote storage.
+func (c *ClusterTx) IsRemoteStorage(poolID int64) (bool, error) {
+	driver, err := c.GetStoragePoolDriver(poolID)
+	if err != nil {
+		return false, err
+	}
+
+	isRemoteStorage := shared.StringInSlice(driver, StorageRemoteDriverNames())
 	return isRemoteStorage, err
 }

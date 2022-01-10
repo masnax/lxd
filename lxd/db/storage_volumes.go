@@ -308,6 +308,23 @@ func (c *Cluster) GetLocalStoragePoolVolumesWithType(projectName string, volumeT
 // Return a single storage volume attached to a given storage pool of a given
 // type, on the node with the given ID.
 func (c *Cluster) storagePoolVolumeGetType(project string, volumeName string, volumeType int, poolID, nodeID int64) (int64, *api.StorageVolume, error) {
+	var id int64
+	var volume *api.StorageVolume
+	err := c.Transaction(func(tx *ClusterTx) error {
+		var err error
+		id, volume, err = tx.storagePoolVolumeGetType(project, volumeName, volumeType, poolID, nodeID)
+		return err
+	})
+	if err != nil {
+		return -1, nil, err
+	}
+
+	return id, volume, err
+}
+
+// Return a single storage volume attached to a given storage pool of a given
+// type, on the node with the given ID.
+func (c *ClusterTx) storagePoolVolumeGetType(project string, volumeName string, volumeType int, poolID, nodeID int64) (int64, *api.StorageVolume, error) {
 	isSnapshot := strings.Contains(volumeName, shared.SnapshotDelimiter)
 
 	volumeID, err := c.storagePoolVolumeGetTypeID(project, volumeName, volumeType, poolID, nodeID)
@@ -369,6 +386,23 @@ func (c *Cluster) storagePoolVolumeGetType(project string, volumeName string, vo
 // GetLocalStoragePoolVolume gets a single storage volume attached to a
 // given storage pool of a given type, on the current node in the given project.
 func (c *Cluster) GetLocalStoragePoolVolume(project, volumeName string, volumeType int, poolID int64) (int64, *api.StorageVolume, error) {
+	var id int64
+	var volume *api.StorageVolume
+	err := c.Transaction(func(tx *ClusterTx) error {
+		var err error
+		id, volume, err = tx.GetLocalStoragePoolVolume(project, volumeName, volumeType, poolID)
+		return err
+	})
+	if err != nil {
+		return -1, nil, err
+	}
+
+	return id, volume, err
+}
+
+// GetLocalStoragePoolVolume gets a single storage volume attached to a
+// given storage pool of a given type, on the current node in the given project.
+func (c *ClusterTx) GetLocalStoragePoolVolume(project, volumeName string, volumeType int, poolID int64) (int64, *api.StorageVolume, error) {
 	return c.storagePoolVolumeGetType(project, volumeName, volumeType, poolID, c.nodeID)
 }
 
@@ -407,6 +441,15 @@ func (c *Cluster) UpdateStoragePoolVolume(project, volumeName string, volumeType
 // RemoveStoragePoolVolume deletes the storage volume attached to a given storage
 // pool.
 func (c *Cluster) RemoveStoragePoolVolume(project, volumeName string, volumeType int, poolID int64) error {
+	err := c.Transaction(func(tx *ClusterTx) error {
+		return tx.RemoveStoragePoolVolume(project, volumeName, volumeType, poolID)
+	})
+	return err
+}
+
+// RemoveStoragePoolVolume deletes the storage volume attached to a given storage
+// pool.
+func (c *ClusterTx) RemoveStoragePoolVolume(project, volumeName string, volumeType int, poolID int64) error {
 	volumeID, _, err := c.GetLocalStoragePoolVolume(project, volumeName, volumeType, poolID)
 	if err != nil {
 		return err
@@ -420,11 +463,8 @@ func (c *Cluster) RemoveStoragePoolVolume(project, volumeName string, volumeType
 		stmt = "DELETE FROM storage_volumes WHERE id=?"
 	}
 
-	err = c.Transaction(func(tx *ClusterTx) error {
-		err := storagePoolVolumeReplicateIfCeph(tx.tx, volumeID, project, volumeName, volumeType, poolID, func(volumeID int64) error {
-			_, err := tx.tx.Exec(stmt, volumeID)
-			return err
-		})
+	err = storagePoolVolumeReplicateIfCeph(c.tx, volumeID, project, volumeName, volumeType, poolID, func(volumeID int64) error {
+		_, err := c.tx.Exec(stmt, volumeID)
 		return err
 	})
 
@@ -767,6 +807,21 @@ func (c *ClusterTx) GetStorageVolumeNodes(poolID int64, projectName string, volu
 // Return the name of the node a storage volume is on.
 func (c *Cluster) storageVolumeNodeGet(volumeID int64) (string, error) {
 	name := ""
+	err := c.Transaction(func(tx *ClusterTx) error {
+		var err error
+		name, err = tx.storageVolumeNodeGet(volumeID)
+		return err
+	})
+	if err != nil {
+		return "", err
+	}
+
+	return name, nil
+}
+
+// Return the name of the node a storage volume is on.
+func (c *ClusterTx) storageVolumeNodeGet(volumeID int64) (string, error) {
+	name := ""
 	query := `
 SELECT nodes.name FROM storage_volumes_all
   JOIN nodes ON nodes.id=storage_volumes_all.node_id
@@ -775,7 +830,7 @@ SELECT nodes.name FROM storage_volumes_all
 	inargs := []interface{}{volumeID}
 	outargs := []interface{}{&name}
 
-	err := dbQueryRowScan(c, query, inargs, outargs)
+	err := c.tx.QueryRow(query, inargs...).Scan(outargs...)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return "", ErrNoSuchObject
@@ -789,6 +844,21 @@ SELECT nodes.name FROM storage_volumes_all
 
 // Get the config of a storage volume.
 func (c *Cluster) storageVolumeConfigGet(volumeID int64, isSnapshot bool) (map[string]string, error) {
+	var config map[string]string
+	err := c.Transaction(func(tx *ClusterTx) error {
+		var err error
+		config, err = tx.storageVolumeConfigGet(volumeID, isSnapshot)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return config, nil
+}
+
+// Get the config of a storage volume.
+func (c *ClusterTx) storageVolumeConfigGet(volumeID int64, isSnapshot bool) (map[string]string, error) {
 	var key, value string
 	var query string
 	if isSnapshot {
@@ -799,7 +869,7 @@ func (c *Cluster) storageVolumeConfigGet(volumeID int64, isSnapshot bool) (map[s
 	inargs := []interface{}{volumeID}
 	outargs := []interface{}{key, value}
 
-	results, err := queryScan(c, query, inargs, outargs)
+	results, err := doDbQueryScan(c.tx, query, inargs, outargs)
 	if err != nil {
 		return nil, err
 	}
@@ -819,11 +889,26 @@ func (c *Cluster) storageVolumeConfigGet(volumeID int64, isSnapshot bool) (map[s
 // GetStorageVolumeDescription gets the description of a storage volume.
 func (c *Cluster) GetStorageVolumeDescription(volumeID int64) (string, error) {
 	var description string
+	err := c.Transaction(func(tx *ClusterTx) error {
+		var err error
+		description, err = tx.GetStorageVolumeDescription(volumeID)
+		return err
+	})
+	if err != nil {
+		return "", nil
+	}
+
+	return description, nil
+}
+
+// GetStorageVolumeDescription gets the description of a storage volume.
+func (c *ClusterTx) GetStorageVolumeDescription(volumeID int64) (string, error) {
+	var description string
 	query := "SELECT description FROM storage_volumes_all WHERE id=?"
 	inargs := []interface{}{volumeID}
 	outargs := []interface{}{&description}
 
-	err := dbQueryRowScan(c, query, inargs, outargs)
+	err := c.tx.QueryRow(query, inargs...).Scan(outargs...)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return "", ErrNoSuchObject
@@ -837,11 +922,26 @@ func (c *Cluster) GetStorageVolumeDescription(volumeID int64) (string, error) {
 // getStorageVolumeContentType gets the content type of a storage volume.
 func (c *Cluster) getStorageVolumeContentType(volumeID int64) (int, error) {
 	var contentType int
+	err := c.Transaction(func(tx *ClusterTx) error {
+		var err error
+		contentType, err = tx.getStorageVolumeContentType(volumeID)
+		return err
+	})
+	if err != nil {
+		return -1, err
+	}
+
+	return contentType, nil
+}
+
+// getStorageVolumeContentType gets the content type of a storage volume.
+func (c *ClusterTx) getStorageVolumeContentType(volumeID int64) (int, error) {
+	var contentType int
 	query := "SELECT content_type FROM storage_volumes_all WHERE id=?"
 	inargs := []interface{}{volumeID}
 	outargs := []interface{}{&contentType}
 
-	err := dbQueryRowScan(c, query, inargs, outargs)
+	err := c.tx.QueryRow(query, inargs...).Scan(outargs...)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return -1, ErrNoSuchObject
