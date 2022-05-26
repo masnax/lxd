@@ -40,7 +40,7 @@ func NewMethod(database, pkg, entity, kind string, config map[string]string) (*M
 
 // Generate the desired method.
 func (m *Method) Generate(buf *file.Buffer) error {
-	mapping, err := Parse(m.packages[m.pkg], lex.Camel(m.entity), m.kind)
+	mapping, err := Parse(m.packages[m.pkg], m.packages[m.pkg], lex.Camel(m.entity), m.kind)
 	if err != nil {
 		return fmt.Errorf("Unable to parse go struct %q: %w", lex.Camel(m.entity), err)
 	}
@@ -94,7 +94,7 @@ func (m *Method) GenerateSignature(buf *file.Buffer) error {
 }
 
 func (m *Method) uris(buf *file.Buffer) error {
-	mapping, err := Parse(m.packages[m.pkg], lex.Camel(m.entity), m.kind)
+	mapping, err := Parse(m.packages[m.pkg], m.packages[m.pkg], lex.Camel(m.entity), m.kind)
 	if err != nil {
 		return fmt.Errorf("Parse entity struct: %w", err)
 	}
@@ -179,7 +179,7 @@ func (m *Method) uris(buf *file.Buffer) error {
 }
 
 func (m *Method) getMany(buf *file.Buffer) error {
-	mapping, err := Parse(m.packages[m.pkg], lex.Camel(m.entity), m.kind)
+	mapping, err := Parse(m.packages[m.pkg], m.packages[m.pkg], lex.Camel(m.entity), m.kind)
 	if err != nil {
 		return fmt.Errorf("Parse entity struct: %w", err)
 	}
@@ -279,7 +279,7 @@ func (m *Method) getMany(buf *file.Buffer) error {
 		refStruct := lex.Singular(field.Name)
 		refVar := lex.Minuscule(refStruct)
 		refSlice := lex.Plural(refVar)
-		refMapping, err := Parse(m.packages[m.pkg], refStruct, "")
+		refMapping, err := Parse(m.packages[m.pkg], m.packages[m.pkg], refStruct, "")
 		if err != nil {
 			return fmt.Errorf("Could not find definition for reference struct %q in package %q: %w", refStruct, m.db, err)
 		}
@@ -386,7 +386,7 @@ func (m *Method) getMany(buf *file.Buffer) error {
 }
 
 func (m *Method) getOne(buf *file.Buffer) error {
-	mapping, err := Parse(m.packages[m.pkg], lex.Camel(m.entity), m.kind)
+	mapping, err := Parse(m.packages[m.pkg], m.packages[m.pkg], lex.Camel(m.entity), m.kind)
 	if err != nil {
 		return fmt.Errorf("Parse entity struct: %w", err)
 	}
@@ -425,7 +425,7 @@ func (m *Method) id(buf *file.Buffer) error {
 		entityCreate = entityPost(m.entity)
 	}
 
-	mapping, err := Parse(m.packages[m.pkg], entityCreate, m.kind)
+	mapping, err := Parse(m.packages[m.pkg], m.packages[m.pkg], entityCreate, m.kind)
 	if err != nil {
 		return fmt.Errorf("Parse entity struct: %w", err)
 	}
@@ -467,7 +467,7 @@ func (m *Method) exists(buf *file.Buffer) error {
 		entityCreate = entityPost(m.entity)
 	}
 
-	mapping, err := Parse(m.packages[m.pkg], entityCreate, m.kind)
+	mapping, err := Parse(m.packages[m.pkg], m.packages[m.pkg], entityCreate, m.kind)
 	if err != nil {
 		return fmt.Errorf("Parse entity struct: %w", err)
 	}
@@ -494,7 +494,7 @@ func (m *Method) exists(buf *file.Buffer) error {
 }
 
 func (m *Method) create(buf *file.Buffer, replace bool) error {
-	mapping, err := Parse(m.packages[m.pkg], lex.Camel(m.entity), m.kind)
+	mapping, err := Parse(m.packages[m.pkg], m.packages[m.pkg], lex.Camel(m.entity), m.kind)
 	if err != nil {
 		return fmt.Errorf("Parse entity struct: %w", err)
 	}
@@ -592,7 +592,7 @@ func (m *Method) create(buf *file.Buffer, replace bool) error {
 		}
 
 		refStruct := lex.Singular(field.Name)
-		refMapping, err := Parse(m.packages[m.pkg], lex.Singular(field.Name), "")
+		refMapping, err := Parse(m.packages[m.pkg], m.packages[m.pkg], lex.Singular(field.Name), "")
 		if err != nil {
 			return fmt.Errorf("Parse entity struct: %w", err)
 		}
@@ -638,7 +638,7 @@ func (m *Method) create(buf *file.Buffer, replace bool) error {
 }
 
 func (m *Method) rename(buf *file.Buffer) error {
-	mapping, err := Parse(m.packages[m.pkg], lex.Camel(m.entity), m.kind)
+	mapping, err := Parse(m.packages[m.pkg], m.packages[m.pkg], lex.Camel(m.entity), m.kind)
 	if err != nil {
 		return fmt.Errorf("Parse entity struct: %w", err)
 	}
@@ -666,7 +666,7 @@ func (m *Method) rename(buf *file.Buffer) error {
 }
 
 func (m *Method) update(buf *file.Buffer) error {
-	mapping, err := Parse(m.packages[m.pkg], lex.Camel(m.entity), m.kind)
+	mapping, err := Parse(m.packages[m.pkg], m.packages[m.pkg], lex.Camel(m.entity), m.kind)
 	if err != nil {
 		return fmt.Errorf("Parse entity struct: %w", err)
 	}
@@ -726,7 +726,7 @@ func (m *Method) update(buf *file.Buffer) error {
 		buf.L("}")
 		m.ifErrNotNil(buf, "err")
 	case EntityTable:
-		updateMapping, err := Parse(m.packages[m.pkg], entityUpdate, m.kind)
+		updateMapping, err := Parse(m.packages[m.pkg], m.packages[m.pkg], entityUpdate, m.kind)
 		if err != nil {
 			return fmt.Errorf("Parse entity struct: %w", err)
 		}
@@ -757,7 +757,7 @@ func (m *Method) update(buf *file.Buffer) error {
 			}
 
 			refStruct := lex.Singular(field.Name)
-			refMapping, err := Parse(m.packages[m.pkg], lex.Singular(field.Name), "")
+			refMapping, err := Parse(m.packages[m.pkg], m.packages[m.pkg], lex.Singular(field.Name), "")
 			if err != nil {
 				return fmt.Errorf("Parse entity struct: %w", err)
 			}
@@ -787,7 +787,7 @@ func (m *Method) update(buf *file.Buffer) error {
 }
 
 func (m *Method) delete(buf *file.Buffer, deleteOne bool) error {
-	mapping, err := Parse(m.packages[m.pkg], lex.Camel(m.entity), m.kind)
+	mapping, err := Parse(m.packages[m.pkg], m.packages[m.pkg], lex.Camel(m.entity), m.kind)
 	if err != nil {
 		return fmt.Errorf("Parse entity struct: %w", err)
 	}
@@ -841,7 +841,7 @@ func (m *Method) delete(buf *file.Buffer, deleteOne bool) error {
 
 // signature generates a method or interface signature with comments, arguments, and return values.
 func (m *Method) signature(buf *file.Buffer, isInterface bool) error {
-	mapping, err := Parse(m.packages[m.pkg], lex.Camel(m.entity), m.kind)
+	mapping, err := Parse(m.packages[m.pkg], m.packages[m.pkg], lex.Camel(m.entity), m.kind)
 	if err != nil {
 		return fmt.Errorf("Parse entity struct: %w", err)
 	}
@@ -988,7 +988,7 @@ func (m *Method) signature(buf *file.Buffer, isInterface bool) error {
 }
 
 func (m *Method) begin(buf *file.Buffer, comment string, args string, rets string, isInterface bool) error {
-	mapping, err := Parse(m.packages[m.pkg], lex.Camel(m.entity), m.kind)
+	mapping, err := Parse(m.packages[m.pkg], m.packages[m.pkg], lex.Camel(m.entity), m.kind)
 	if err != nil {
 		return fmt.Errorf("Parse entity struct: %w", err)
 	}

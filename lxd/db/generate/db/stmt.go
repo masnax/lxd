@@ -15,17 +15,28 @@ import (
 
 // Stmt generates a particular database query statement.
 type Stmt struct {
-	db     string            // Target database (cluster or node)
-	entity string            // Name of the database entity
-	kind   string            // Kind of statement to generate
-	config map[string]string // Configuration parameters
-	pkg    *ast.Package      // Package to perform for struct declaration lookups
+	db        string            // Target database (cluster or node)
+	entity    string            // Name of the database entity
+	kind      string            // Kind of statement to generate
+	config    map[string]string // Configuration parameters
+	pkg       *ast.Package      // External package for struct declaration lookup
+	sourcePkg *ast.Package      // Source package from which the generator was called.
 }
 
 // NewStmt return a new statement code snippet for running the given kind of
 // query against the given database entity.
 func NewStmt(database, pkg, entity, kind string, config map[string]string) (*Stmt, error) {
-	var pkgPath string
+	pkgPath, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
+
+	sourcePkg, err := ParsePackage(pkgPath)
+	if err != nil {
+		return nil, err
+	}
+
+	var externalPkg *ast.Package
 	if pkg != "" && config["version"] == "2" {
 		importPkg, err := build.Import(pkg, "", build.FindOnly)
 		if err != nil {
@@ -33,25 +44,21 @@ func NewStmt(database, pkg, entity, kind string, config map[string]string) (*Stm
 		}
 
 		pkgPath = importPkg.Dir
-	} else {
-		var err error
-		pkgPath, err = os.Getwd()
+		externalPkg, err = ParsePackage(pkgPath)
 		if err != nil {
 			return nil, err
 		}
-	}
-
-	parsedPkg, err := ParsePackage(pkgPath)
-	if err != nil {
-		return nil, err
+	} else {
+		externalPkg = sourcePkg
 	}
 
 	stmt := &Stmt{
-		db:     database,
-		entity: entity,
-		kind:   kind,
-		config: config,
-		pkg:    parsedPkg,
+		db:        database,
+		entity:    entity,
+		kind:      kind,
+		config:    config,
+		pkg:       externalPkg,
+		sourcePkg: sourcePkg,
 	}
 
 	return stmt, nil
@@ -87,7 +94,7 @@ func (s *Stmt) GenerateSignature(buf *file.Buffer) error {
 }
 
 func (s *Stmt) objects(buf *file.Buffer) error {
-	mapping, err := Parse(s.pkg, lex.Camel(s.entity), s.kind)
+	mapping, err := Parse(s.pkg, s.sourcePkg, lex.Camel(s.entity), s.kind)
 	if err != nil {
 		return err
 	}
@@ -238,7 +245,7 @@ func (s *Stmt) create(buf *file.Buffer, replace bool) error {
 	// Support using a different structure or package to pass arguments to Create.
 	entityCreate := lex.Camel(s.entity)
 
-	mapping, err := Parse(s.pkg, entityCreate, s.kind)
+	mapping, err := Parse(s.pkg, s.sourcePkg, entityCreate, s.kind)
 	if err != nil {
 		return fmt.Errorf("Parse entity struct: %w", err)
 	}
@@ -320,7 +327,7 @@ func (s *Stmt) create(buf *file.Buffer, replace bool) error {
 }
 
 func (s *Stmt) id(buf *file.Buffer) error {
-	mapping, err := Parse(s.pkg, lex.Camel(s.entity), s.kind)
+	mapping, err := Parse(s.pkg, s.sourcePkg, lex.Camel(s.entity), s.kind)
 	if err != nil {
 		return fmt.Errorf("Parse entity struct: %w", err)
 	}
@@ -332,7 +339,7 @@ func (s *Stmt) id(buf *file.Buffer) error {
 }
 
 func (s *Stmt) rename(buf *file.Buffer) error {
-	mapping, err := Parse(s.pkg, lex.Camel(s.entity), s.kind)
+	mapping, err := Parse(s.pkg, s.sourcePkg, lex.Camel(s.entity), s.kind)
 	if err != nil {
 		return err
 	}
@@ -351,7 +358,7 @@ func (s *Stmt) update(buf *file.Buffer) error {
 	// Support using a different structure or package to pass arguments to Create.
 	entityUpdate := lex.Camel(s.entity)
 
-	mapping, err := Parse(s.pkg, entityUpdate, s.kind)
+	mapping, err := Parse(s.pkg, s.sourcePkg, entityUpdate, s.kind)
 	if err != nil {
 		return fmt.Errorf("Parse entity struct: %w", err)
 	}
@@ -381,7 +388,7 @@ func (s *Stmt) update(buf *file.Buffer) error {
 }
 
 func (s *Stmt) delete(buf *file.Buffer) error {
-	mapping, err := Parse(s.pkg, lex.Camel(s.entity), s.kind)
+	mapping, err := Parse(s.pkg, s.sourcePkg, lex.Camel(s.entity), s.kind)
 	if err != nil {
 		return err
 	}

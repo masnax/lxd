@@ -145,11 +145,18 @@ func sortFilter(filter []string) []string {
 
 // Parse the structure declaration with the given name found in the given Go package.
 // Any 'Entity' struct should also have an 'EntityFilter' struct defined in the same file.
-func Parse(pkg *ast.Package, name string, kind string) (*Mapping, error) {
+// If the struct is not found in the external package, the source package will be parsed instead.
+func Parse(externalPkg *ast.Package, sourcePkg *ast.Package, name string, kind string) (*Mapping, error) {
 	// The main entity struct.
+	pkg := externalPkg
 	str := findStruct(pkg.Scope, name)
 	if str == nil {
-		return nil, fmt.Errorf("No declaration found for %q", name)
+		// If the struct couldn't be found, try the source package instead.
+		pkg = sourcePkg
+		str = findStruct(pkg.Scope, name)
+		if str == nil {
+			return nil, fmt.Errorf("No declaration found for %q", name)
+		}
 	}
 
 	fields, err := parseStruct(str, kind)
@@ -163,6 +170,7 @@ func Parse(pkg *ast.Package, name string, kind string) (*Mapping, error) {
 		Fields:     fields,
 		Type:       tableType(pkg, name, fields),
 		Filterable: true,
+		Local:      pkg.Name == sourcePkg.Name,
 	}
 
 	// Reference tables rely on ReferenceID for filtering, instead of a Filter struct.

@@ -17,6 +17,7 @@ type Mapping struct {
 	Filterable bool      // Whether the Go struct has a Filter companion struct for filtering queries.
 	Filters    []*Field  // Metadata about the Go struct used for filter fields.
 	Type       TableType // Type of table structure for this Go struct.
+	Local      bool      // Whether this mapping is of a local or external package.
 
 }
 

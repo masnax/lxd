@@ -15,17 +15,28 @@ import (
 
 // MethodV2 generates a code snippet for a particular database query method.
 type MethodV2 struct {
-	db     string            // Target database (cluster or node)
-	entity string            // Name of the database entity
-	kind   string            // Kind of statement to generate
-	ref    string            // ref is the current reference method for the method kind
-	config map[string]string // Configuration parameters
-	pkg    *ast.Package      // Package to perform for struct declaration lookup
+	db        string            // Target database (cluster or node)
+	entity    string            // Name of the database entity
+	kind      string            // Kind of statement to generate
+	ref       string            // ref is the current reference method for the method kind
+	config    map[string]string // Configuration parameters
+	pkg       *ast.Package      // External package for struct declaration lookup
+	sourcePkg *ast.Package      // Source package from which the generator was called.
 }
 
 // NewMethodV2 return a new method code snippet for executing a certain mapping.
 func NewMethodV2(database, pkg, entity, kind string, config map[string]string) (*MethodV2, error) {
-	var pkgPath string
+	pkgPath, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
+
+	sourcePkg, err := ParsePackage(pkgPath)
+	if err != nil {
+		return nil, err
+	}
+
+	var externalPkg *ast.Package
 	if pkg != "" && config["version"] == "2" {
 		importPkg, err := build.Import(pkg, "", build.FindOnly)
 		if err != nil {
@@ -33,25 +44,21 @@ func NewMethodV2(database, pkg, entity, kind string, config map[string]string) (
 		}
 
 		pkgPath = importPkg.Dir
-	} else {
-		var err error
-		pkgPath, err = os.Getwd()
+		externalPkg, err = ParsePackage(pkgPath)
 		if err != nil {
 			return nil, err
 		}
-	}
-
-	parsedPkg, err := ParsePackage(pkgPath)
-	if err != nil {
-		return nil, err
+	} else {
+		externalPkg = sourcePkg
 	}
 
 	method := &MethodV2{
-		db:     database,
-		entity: entity,
-		kind:   kind,
-		config: config,
-		pkg:    parsedPkg,
+		db:        database,
+		entity:    entity,
+		kind:      kind,
+		config:    config,
+		pkg:       externalPkg,
+		sourcePkg: sourcePkg,
 	}
 
 	return method, nil
@@ -59,10 +66,11 @@ func NewMethodV2(database, pkg, entity, kind string, config map[string]string) (
 
 // Generate the desired method.
 func (m *MethodV2) Generate(buf *file.Buffer) error {
-	mapping, err := Parse(m.pkg, lex.Camel(m.entity), m.kind)
+	mapping, err := Parse(m.pkg, m.sourcePkg, lex.Camel(m.entity), m.kind)
 	if err != nil {
 		return fmt.Errorf("Unable to parse go struct %q: %w", lex.Camel(m.entity), err)
 	}
+
 	if mapping.Type != EntityTable {
 		switch operation(m.kind) {
 		case "GetMany":
@@ -131,13 +139,17 @@ func (m *MethodV2) GenerateSignature(buf *file.Buffer) error {
 }
 
 func (m *MethodV2) uris(buf *file.Buffer) error {
-	mapping, err := Parse(m.pkg, lex.Camel(m.entity), m.kind)
+	mapping, err := Parse(m.pkg, m.sourcePkg, lex.Camel(m.entity), m.kind)
 	if err != nil {
 		return fmt.Errorf("Parse entity struct: %w", err)
 	}
 
 	// Go type name the objects to return (e.g. api.Foo).
 	typ := lex.Camel(m.entity)
+
+	if !mapping.Local {
+		typ = fmt.Sprintf("%s.%s", mapping.Package, typ)
+	}
 
 	if err := m.signature(buf, false); err != nil {
 		return err
@@ -216,7 +228,7 @@ func (m *MethodV2) uris(buf *file.Buffer) error {
 }
 
 func (m *MethodV2) getMany(buf *file.Buffer) error {
-	mapping, err := Parse(m.pkg, lex.Camel(m.entity), m.kind)
+	mapping, err := Parse(m.pkg, m.sourcePkg, lex.Camel(m.entity), m.kind)
 	if err != nil {
 		return fmt.Errorf("Parse entity struct: %w", err)
 	}
@@ -224,7 +236,7 @@ func (m *MethodV2) getMany(buf *file.Buffer) error {
 	if m.config["references"] != "" {
 		refFields := strings.Split(m.config["references"], ",")
 		for _, fieldName := range refFields {
-			refMapping, err := Parse(m.pkg, fieldName, m.kind)
+			refMapping, err := Parse(m.pkg, m.sourcePkg, fieldName, m.kind)
 			if err != nil {
 				return fmt.Errorf("Parse entity struct: %w", err)
 			}
@@ -235,6 +247,10 @@ func (m *MethodV2) getMany(buf *file.Buffer) error {
 
 	// Go type name the objects to return (e.g. api.Foo).
 	typ := lex.Camel(m.entity)
+
+	if !mapping.Local {
+		typ = fmt.Sprintf("%s.%s", mapping.Package, typ)
+	}
 
 	if err := m.signature(buf, false); err != nil {
 		return err
@@ -317,9 +333,9 @@ func (m *MethodV2) getMany(buf *file.Buffer) error {
 		refStruct := lex.Singular(field.Name)
 		refVar := lex.Minuscule(refStruct)
 		refSlice := lex.Plural(refVar)
-		refMapping, err := Parse(m.pkg, refStruct, "")
+		refMapping, err := Parse(m.pkg, m.sourcePkg, refStruct, "")
 		if err != nil {
-			return fmt.Errorf("Could not find definition for reference struct %q in package %q: %w", refStruct, m.db, err)
+			return fmt.Errorf("Could not find definition for reference struct %q in package %q: %w", m.entity, m.kind, refStruct, m.db, err)
 		}
 
 		switch refMapping.Type {
@@ -390,9 +406,15 @@ func (m *MethodV2) getMany(buf *file.Buffer) error {
 	switch mapping.Type {
 	case AssociationTable:
 		ref := strings.Replace(mapping.Name, m.config["struct"], "", -1)
-		buf.L("result := make([]%s, len(objects))", ref)
+
+		typeName := ref
+		if m.pkg.Name != m.sourcePkg.Name {
+			typeName = fmt.Sprintf("%s.%s", m.pkg.Name, typeName)
+		}
+
+		buf.L("result := make([]%s, len(objects))", typeName)
 		buf.L("for i, object := range objects {")
-		buf.L("%s, err := %sGet%s(ctx, tx, %sFilter{ID: &object.%sID})", lex.Minuscule(ref), m.db, lex.Plural(ref), ref, ref)
+		buf.L("%s, err := %sGet%s(ctx, tx, %sFilter{ID: &object.%sID})", lex.Minuscule(ref), m.db, lex.Plural(ref), typeName, ref)
 
 		m.ifErrNotNil(buf, "nil", "err")
 		buf.L("result[i] = %s[0]", lex.Minuscule(ref))
@@ -470,7 +492,7 @@ func (m *MethodV2) getRefs(buf *file.Buffer, refMapping *Mapping) error {
 }
 
 func (m *MethodV2) getOne(buf *file.Buffer) error {
-	mapping, err := Parse(m.pkg, lex.Camel(m.entity), m.kind)
+	mapping, err := Parse(m.pkg, m.sourcePkg, lex.Camel(m.entity), m.kind)
 	if err != nil {
 		return fmt.Errorf("Parse entity struct: %w", err)
 	}
@@ -509,7 +531,7 @@ func (m *MethodV2) id(buf *file.Buffer) error {
 		entityCreate = lex.Camel(m.entity)
 	}
 
-	mapping, err := Parse(m.pkg, entityCreate, m.kind)
+	mapping, err := Parse(m.pkg, m.sourcePkg, entityCreate, m.kind)
 	if err != nil {
 		return fmt.Errorf("Parse entity struct: %w", err)
 	}
@@ -551,7 +573,7 @@ func (m *MethodV2) exists(buf *file.Buffer) error {
 		entityCreate = lex.Camel(m.entity)
 	}
 
-	mapping, err := Parse(m.pkg, entityCreate, m.kind)
+	mapping, err := Parse(m.pkg, m.sourcePkg, entityCreate, m.kind)
 	if err != nil {
 		return fmt.Errorf("Parse entity struct: %w", err)
 	}
@@ -578,7 +600,7 @@ func (m *MethodV2) exists(buf *file.Buffer) error {
 }
 
 func (m *MethodV2) create(buf *file.Buffer, replace bool) error {
-	mapping, err := Parse(m.pkg, lex.Camel(m.entity), m.kind)
+	mapping, err := Parse(m.pkg, m.sourcePkg, lex.Camel(m.entity), m.kind)
 	if err != nil {
 		return fmt.Errorf("Parse entity struct: %w", err)
 	}
@@ -586,7 +608,7 @@ func (m *MethodV2) create(buf *file.Buffer, replace bool) error {
 	if m.config["references"] != "" {
 		refFields := strings.Split(m.config["references"], ",")
 		for _, fieldName := range refFields {
-			refMapping, err := Parse(m.pkg, fieldName, m.kind)
+			refMapping, err := Parse(m.pkg, m.sourcePkg, fieldName, m.kind)
 			if err != nil {
 				return fmt.Errorf("Parse entity struct: %w", err)
 			}
@@ -688,7 +710,7 @@ func (m *MethodV2) create(buf *file.Buffer, replace bool) error {
 		}
 
 		refStruct := lex.Singular(field.Name)
-		refMapping, err := Parse(m.pkg, lex.Singular(field.Name), "")
+		refMapping, err := Parse(m.pkg, m.sourcePkg, lex.Singular(field.Name), "")
 		if err != nil {
 			return fmt.Errorf("Parse entity struct: %w", err)
 		}
@@ -773,7 +795,7 @@ func (m *MethodV2) createRefs(buf *file.Buffer, refMapping *Mapping) error {
 }
 
 func (m *MethodV2) rename(buf *file.Buffer) error {
-	mapping, err := Parse(m.pkg, lex.Camel(m.entity), m.kind)
+	mapping, err := Parse(m.pkg, m.sourcePkg, lex.Camel(m.entity), m.kind)
 	if err != nil {
 		return fmt.Errorf("Parse entity struct: %w", err)
 	}
@@ -801,7 +823,7 @@ func (m *MethodV2) rename(buf *file.Buffer) error {
 }
 
 func (m *MethodV2) update(buf *file.Buffer) error {
-	mapping, err := Parse(m.pkg, lex.Camel(m.entity), m.kind)
+	mapping, err := Parse(m.pkg, m.sourcePkg, lex.Camel(m.entity), m.kind)
 	if err != nil {
 		return fmt.Errorf("Parse entity struct: %w", err)
 	}
@@ -815,7 +837,7 @@ func (m *MethodV2) update(buf *file.Buffer) error {
 	if m.config["references"] != "" {
 		refFields := strings.Split(m.config["references"], ",")
 		for _, fieldName := range refFields {
-			refMapping, err := Parse(m.pkg, fieldName, m.kind)
+			refMapping, err := Parse(m.pkg, m.sourcePkg, fieldName, m.kind)
 			if err != nil {
 				return fmt.Errorf("Parse entity struct: %w", err)
 			}
@@ -835,7 +857,7 @@ func (m *MethodV2) update(buf *file.Buffer) error {
 	switch mapping.Type {
 	case AssociationTable:
 		ref := strings.Replace(mapping.Name, m.config["struct"], "", -1)
-		refMapping, err := Parse(m.pkg, ref, "")
+		refMapping, err := Parse(m.pkg, m.sourcePkg, ref, "")
 		if err != nil {
 			return fmt.Errorf("Parse entity struct: %w", err)
 		}
@@ -878,7 +900,7 @@ func (m *MethodV2) update(buf *file.Buffer) error {
 		buf.L("}")
 		m.ifErrNotNil(buf, "err")
 	case EntityTable:
-		updateMapping, err := Parse(m.pkg, entityUpdate, m.kind)
+		updateMapping, err := Parse(m.pkg, m.sourcePkg, entityUpdate, m.kind)
 		if err != nil {
 			return fmt.Errorf("Parse entity struct: %w", err)
 		}
@@ -909,7 +931,7 @@ func (m *MethodV2) update(buf *file.Buffer) error {
 			}
 
 			refStruct := lex.Singular(field.Name)
-			refMapping, err := Parse(m.pkg, lex.Singular(field.Name), "")
+			refMapping, err := Parse(m.pkg, m.sourcePkg, lex.Singular(field.Name), "")
 			if err != nil {
 				return fmt.Errorf("Parse entity struct: %w", err)
 			}
@@ -962,7 +984,7 @@ func (m *MethodV2) updateRefs(buf *file.Buffer, refMapping *Mapping) error {
 }
 
 func (m *MethodV2) delete(buf *file.Buffer, deleteOne bool) error {
-	mapping, err := Parse(m.pkg, lex.Camel(m.entity), m.kind)
+	mapping, err := Parse(m.pkg, m.sourcePkg, lex.Camel(m.entity), m.kind)
 	if err != nil {
 		return fmt.Errorf("Parse entity struct: %w", err)
 	}
@@ -1018,9 +1040,14 @@ func (m *MethodV2) delete(buf *file.Buffer, deleteOne bool) error {
 
 // signature generates a method or interface signature with comments, arguments, and return values.
 func (m *MethodV2) signature(buf *file.Buffer, isInterface bool) error {
-	mapping, err := Parse(m.pkg, lex.Camel(m.entity), m.kind)
+	mapping, err := Parse(m.pkg, m.sourcePkg, lex.Camel(m.entity), m.kind)
 	if err != nil {
 		return fmt.Errorf("Parse entity struct: %w", err)
+	}
+
+	typeName := mapping.Name
+	if m.pkg.Name != m.sourcePkg.Name {
+		typeName = fmt.Sprintf("%s.%s", m.pkg.Name, typeName)
 	}
 
 	comment := ""
@@ -1030,23 +1057,28 @@ func (m *MethodV2) signature(buf *file.Buffer, isInterface bool) error {
 	switch mapping.Type {
 	case AssociationTable:
 		ref := strings.Replace(mapping.Name, m.config["struct"], "", -1)
-		refMapping, err := Parse(m.pkg, ref, "")
+		refMapping, err := Parse(m.pkg, m.sourcePkg, ref, "")
 		if err != nil {
 			return fmt.Errorf("Failed to parse struct %q", ref)
 		}
 
+		refType := ref
+		if m.pkg.Name != m.sourcePkg.Name {
+			refType = fmt.Sprintf("%s.%s", m.pkg.Name, refType)
+		}
+
 		switch operation(m.kind) {
 		case "GetMany":
-			comment = fmt.Sprintf("returns all available %s for the %s.", lex.Plural(ref), m.config["struct"])
+			comment = fmt.Sprintf("returns all available %s for the %s.", lex.Plural(refType), m.config["struct"])
 			args += fmt.Sprintf("%sID int", lex.Minuscule(m.config["struct"]))
-			rets = fmt.Sprintf("([]%s, error)", ref)
+			rets = fmt.Sprintf("([]%s, error)", refType)
 		case "Create":
 			comment = fmt.Sprintf("adds a new %s to the database.", m.entity)
-			args += fmt.Sprintf("object %s", mapping.Name)
+			args += fmt.Sprintf("object %s", typeName)
 			rets = "(int64, error)"
 		case "Update":
 			comment = fmt.Sprintf("updates the %s matching the given key parameters.", m.entity)
-			args += fmt.Sprintf("%sID int, %s%s []%s", lex.Minuscule(m.config["struct"]), lex.Minuscule(ref), lex.Plural(refMapping.Identifier().Name), refMapping.Identifier().Type.Name)
+			args += fmt.Sprintf("%sID int, %s%s []%s", lex.Minuscule(m.config["struct"]), lex.Minuscule(refType), lex.Plural(refMapping.Identifier().Name), refMapping.Identifier().Type.Name)
 			rets = "error"
 		case "DeleteMany":
 			comment = fmt.Sprintf("deletes the %s matching the given key parameters.", m.entity)
@@ -1060,14 +1092,14 @@ func (m *MethodV2) signature(buf *file.Buffer, isInterface bool) error {
 		case "GetMany":
 			comment = fmt.Sprintf("returns all available %s for the parent entity.", lex.Plural(m.entity))
 			args += "parent string"
-			rets = fmt.Sprintf("(map[int][]%s, error)", mapping.Name)
+			rets = fmt.Sprintf("(map[int][]%s, error)", typeName)
 		case "Create":
 			comment = fmt.Sprintf("adds a new %s to the database.", m.entity)
-			args += fmt.Sprintf("parent string, object %s", mapping.Name)
+			args += fmt.Sprintf("parent string, object %s", typeName)
 			rets = "error"
 		case "Update":
 			comment = fmt.Sprintf("updates the %s matching the given key parameters.", m.entity)
-			args += fmt.Sprintf("parent string, referenceID int, %s map[string]%s", lex.Plural(m.entity), mapping.Name)
+			args += fmt.Sprintf("parent string, referenceID int, %s map[string]%s", lex.Plural(m.entity), typeName)
 			rets = "error"
 		case "DeleteMany":
 			comment = fmt.Sprintf("deletes the %s matching the given key parameters.", m.entity)
@@ -1084,7 +1116,7 @@ func (m *MethodV2) signature(buf *file.Buffer, isInterface bool) error {
 			rets = "(map[int]map[string]string, error)"
 		case "Create":
 			comment = fmt.Sprintf("adds a new %s to the database.", m.entity)
-			args += fmt.Sprintf("parent string, object %s", mapping.Name)
+			args += fmt.Sprintf("parent string, object %s", typeName)
 			rets = "error"
 		case "Update":
 			comment = fmt.Sprintf("updates the %s matching the given key parameters.", m.entity)
@@ -1109,9 +1141,9 @@ func (m *MethodV2) signature(buf *file.Buffer, isInterface bool) error {
 				args += fmt.Sprintf("filter %s", entityFilter(m.entity))
 				rets = fmt.Sprintf("(%s, error)", lex.Slice(lex.Camel(m.entity)))
 			} else {
-				comment = fmt.Sprintf("returns all available %s %s", mapping.Name, lex.Plural(m.ref))
-				args += fmt.Sprintf("%sID int", lex.Minuscule(mapping.Name))
-				refMapping, err := Parse(m.pkg, m.ref, "")
+				comment = fmt.Sprintf("returns all available %s %s", typeName, lex.Plural(m.ref))
+				args += fmt.Sprintf("%sID int", lex.Minuscule(typeName))
+				refMapping, err := Parse(m.pkg, m.sourcePkg, m.ref, "")
 				if err != nil {
 					return fmt.Errorf("Parse entity struct: %w", err)
 				}
@@ -1142,7 +1174,7 @@ func (m *MethodV2) signature(buf *file.Buffer, isInterface bool) error {
 			if m.ref == "" {
 				entityCreate, ok := m.config["struct"]
 				if !ok {
-					entityCreate = mapping.Name
+					entityCreate = typeName
 				}
 				comment = fmt.Sprintf("adds a new %s to the database.", m.entity)
 				args += fmt.Sprintf("object %s", lex.Camel(entityCreate))
@@ -1151,7 +1183,7 @@ func (m *MethodV2) signature(buf *file.Buffer, isInterface bool) error {
 				comment = fmt.Sprintf("adds a new %s %s to the database.", m.entity, m.ref)
 				rets = "error"
 
-				refMapping, err := Parse(m.pkg, m.ref, "")
+				refMapping, err := Parse(m.pkg, m.sourcePkg, m.ref, "")
 				if err != nil {
 					return fmt.Errorf("Parse entity struct: %w", err)
 				}
@@ -1166,7 +1198,7 @@ func (m *MethodV2) signature(buf *file.Buffer, isInterface bool) error {
 		case "CreateOrReplace":
 			entityCreate, ok := m.config["struct"]
 			if !ok {
-				entityCreate = mapping.Name
+				entityCreate = typeName
 			}
 			comment = fmt.Sprintf("adds a new %s to the database.", m.entity)
 			args += fmt.Sprintf("object %s", lex.Camel(entityCreate))
@@ -1179,7 +1211,7 @@ func (m *MethodV2) signature(buf *file.Buffer, isInterface bool) error {
 			if m.ref == "" {
 				entityUpdate, ok := m.config["struct"]
 				if !ok {
-					entityUpdate = mapping.Name
+					entityUpdate = typeName
 				}
 				comment = fmt.Sprintf("updates the %s matching the given key parameters.", m.entity)
 				args += mapping.FieldArgs(mapping.NaturalKey(), fmt.Sprintf("object %s", lex.Camel(entityUpdate)))
@@ -1188,7 +1220,7 @@ func (m *MethodV2) signature(buf *file.Buffer, isInterface bool) error {
 				comment = fmt.Sprintf("updates the %s %s matching the given key parameters.", m.entity, m.ref)
 				rets = "error"
 
-				refMapping, err := Parse(m.pkg, m.ref, "")
+				refMapping, err := Parse(m.pkg, m.sourcePkg, m.ref, "")
 				if err != nil {
 					return fmt.Errorf("Parse entity struct: %w", err)
 				}
@@ -1217,7 +1249,7 @@ func (m *MethodV2) signature(buf *file.Buffer, isInterface bool) error {
 }
 
 func (m *MethodV2) begin(buf *file.Buffer, comment string, args string, rets string, isInterface bool) error {
-	mapping, err := Parse(m.pkg, lex.Camel(m.entity), m.kind)
+	mapping, err := Parse(m.pkg, m.sourcePkg, lex.Camel(m.entity), m.kind)
 	if err != nil {
 		return fmt.Errorf("Parse entity struct: %w", err)
 	}
