@@ -1,10 +1,12 @@
 package cluster
 
 import (
+	"context"
 	"database/sql"
 	"time"
 
 	"github.com/lxc/lxd/lxd/instance/instancetype"
+	"github.com/lxc/lxd/shared/api"
 )
 
 // Code generation directives.
@@ -29,8 +31,20 @@ import (
 //go:generate mapper stmt -e instance objects-by-Node version=2
 //go:generate mapper stmt -e instance objects-by-Node-and-Name version=2
 //go:generate mapper stmt -e instance objects-by-Name version=2
+//go:generate mapper stmt -e instance id version=2
+//go:generate mapper stmt -e instance create version=2
+//go:generate mapper stmt -e instance rename version=2
+//go:generate mapper stmt -e instance delete-by-Project-and-Name version=2
+//go:generate mapper stmt -e instance update version=2
 //
-//go:generate mapper method -i -e instance GetMany version=2
+//go:generate mapper method -i -e instance GetMany references=Config,Device version=2
+//go:generate mapper method -i -e instance GetOne version=2
+//go:generate mapper method -i -e instance ID version=2
+//go:generate mapper method -i -e instance Exists version=2
+//go:generate mapper method -i -e instance Create references=Config,Device version=2
+//go:generate mapper method -i -e instance Rename version=2
+//go:generate mapper method -i -e instance DeleteOne-by-Project-and-Name version=2
+//go:generate mapper method -i -e instance Update references=Config,Device version=2
 
 // Instance is a value object holding db-related details about an instance.
 type Instance struct {
@@ -56,4 +70,9 @@ type InstanceFilter struct {
 	Name    *string
 	Node    *string
 	Type    *instancetype.Type
+}
+
+// TODO: masnax
+func (i *Instance) ToAPI(ctx context.Context, tx *sql.Tx) (*api.Instance, error) {
+	return nil, nil
 }
