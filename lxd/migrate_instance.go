@@ -127,10 +127,15 @@ func snapshotToProtobuf(c instance.Instance) *migration.Snapshot {
 	lastUsedDate := c.LastUsedDate().UTC().Unix()
 	expiryDate := c.ExpiryDate().UTC().Unix()
 
+	profileNames := make([]string, 0, len(c.Profiles()))
+	for _, profile := range c.Profiles() {
+		profileNames = append(profileNames, profile.Name)
+	}
+
 	return &migration.Snapshot{
 		Name:         &parts[len(parts)-1],
 		LocalConfig:  config,
-		Profiles:     c.Profiles(),
+		Profiles:     profileNames,
 		Ephemeral:    &isEphemeral,
 		LocalDevices: devices,
 		Architecture: &arch,
@@ -938,7 +943,10 @@ func (c *migrationSink) Do(state *state.State, revert *revert.Reverter, migrateO
 			volTargetArgs.Snapshots = make([]string, 0, len(args.Snapshots))
 			for _, snap := range args.Snapshots {
 				volTargetArgs.Snapshots = append(volTargetArgs.Snapshots, *snap.Name)
-				snapArgs := snapshotProtobufToInstanceArgs(args.Instance, snap)
+				snapArgs, err := snapshotProtobufToInstanceArgs(state, args.Instance, snap)
+				if err != nil {
+					return err
+				}
 
 				// Ensure that snapshot and parent container have the same
 				// storage pool in their local root disk device. If the root
@@ -952,7 +960,7 @@ func (c *migrationSink) Do(state *state.State, revert *revert.Reverter, migrateO
 				}
 
 				// Create the snapshot instance.
-				_, snapInstOp, cleanup, err := instance.CreateInternal(state, snapArgs, true)
+				_, snapInstOp, cleanup, err := instance.CreateInternal(state, *snapArgs, true)
 				if err != nil {
 					return fmt.Errorf("Failed creating instance snapshot record %q: %w", snapArgs.Name, err)
 				}

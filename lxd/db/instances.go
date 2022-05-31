@@ -37,35 +37,57 @@ func InstanceToArgs(ctx context.Context, tx *sql.Tx, inst *cluster.Instance) (*I
 		ExpiryDate:   inst.ExpiryDate.Time,
 	}
 
-	devices, err := cluster.GetInstanceDevices(ctx, tx, inst.ID)
+	// Get the underlying instance ID if this is a snapshot.
+	instanceID := inst.ID
+	if inst.Snapshot {
+		instanceName := strings.Split(inst.Name, shared.SnapshotDelimiter)[0]
+		id, err := cluster.GetInstanceID(ctx, tx, inst.Project, instanceName)
+		if err != nil {
+			return nil, err
+		}
+
+		instanceID = int(id)
+
+		devices, err := cluster.GetInstanceSnapshotDevices(ctx, tx, inst.ID)
+		if err != nil {
+			return nil, err
+		}
+
+		args.Devices = deviceConfig.NewDevices(cluster.DevicesToAPI(devices))
+		args.Config, err = cluster.GetInstanceSnapshotConfig(ctx, tx, inst.ID)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		devices, err := cluster.GetInstanceDevices(ctx, tx, inst.ID)
+		if err != nil {
+			return nil, err
+		}
+
+		args.Devices = deviceConfig.NewDevices(cluster.DevicesToAPI(devices))
+		args.Config, err = cluster.GetInstanceConfig(ctx, tx, inst.ID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if args.Devices == nil {
+		args.Devices = deviceConfig.Devices{}
+	}
+
+	profiles, err := cluster.GetInstanceProfiles(ctx, tx, instanceID)
 	if err != nil {
 		return nil, err
 	}
 
-	args.Devices = deviceConfig.NewDevices(cluster.DevicesToAPI(devices))
-
-	profiles, err := cluster.GetInstanceProfiles(ctx, tx, inst.ID)
-	if err != nil {
-		return nil, err
-	}
-
-	apiProfiles := make([]api.Profile, 0, len(profiles))
+	args.Profiles = make([]api.Profile, 0, len(profiles))
 	for _, profile := range profiles {
 		apiProfile, err := profile.ToAPI(ctx, tx)
 		if err != nil {
 			return nil, err
 		}
 
-		apiProfiles = append(apiProfiles, *apiProfile)
-	}
-
-	args.Config, err = cluster.GetInstanceConfig(ctx, tx, inst.ID)
-	if err != nil {
-		return nil, err
-	}
-
-	if args.Devices == nil {
-		args.Devices = deviceConfig.Devices{}
+		args.Profiles = append(args.Profiles, *apiProfile)
 	}
 
 	return &args, nil

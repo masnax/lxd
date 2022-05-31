@@ -5,8 +5,10 @@ import (
 	"database/sql"
 	"time"
 
+	"github.com/lxc/lxd/lxd/device/config"
 	"github.com/lxc/lxd/lxd/instance/instancetype"
 	"github.com/lxc/lxd/shared/api"
+	"github.com/lxc/lxd/shared/osarch"
 )
 
 // Code generation directives.
@@ -72,7 +74,62 @@ type InstanceFilter struct {
 	Type    *instancetype.Type
 }
 
-// TODO: masnax
+// ToAPI converts the database Instance to API type.
 func (i *Instance) ToAPI(ctx context.Context, tx *sql.Tx) (*api.Instance, error) {
-	return nil, nil
+	profiles, err := GetInstanceProfiles(ctx, tx, i.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	apiProfiles := make([]api.Profile, 0, len(profiles))
+	profileNames := make([]string, 0, len(profiles))
+	for _, p := range profiles {
+		apiProfile, err := p.ToAPI(ctx, tx)
+		if err != nil {
+			return nil, err
+		}
+
+		apiProfiles = append(apiProfiles, *apiProfile)
+		profileNames = append(profileNames, p.Name)
+	}
+
+	devices, err := GetInstanceDevices(ctx, tx, i.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	apiDevices := DevicesToAPI(devices)
+	expandedDevices := ExpandInstanceDevices(config.NewDevices(apiDevices), apiProfiles)
+
+	config, err := GetInstanceConfig(ctx, tx, i.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	expandedConfig := ExpandInstanceConfig(config, apiProfiles)
+
+	archName, err := osarch.ArchitectureName(i.Architecture)
+	if err != nil {
+		return nil, err
+	}
+
+	return &api.Instance{
+		InstancePut: api.InstancePut{
+			Architecture: archName,
+			Config:       config,
+			Devices:      apiDevices,
+			Ephemeral:    i.Ephemeral,
+			Profiles:     profileNames,
+			Stateful:     i.Stateful,
+			Description:  i.Description,
+		},
+		CreatedAt:       i.CreationDate,
+		ExpandedConfig:  expandedConfig,
+		ExpandedDevices: expandedDevices.CloneNative(),
+		Name:            i.Name,
+		LastUsedAt:      i.LastUseDate.Time,
+		Location:        i.Node,
+		Type:            i.Type.String(),
+		Project:         i.Project,
+	}, nil
 }

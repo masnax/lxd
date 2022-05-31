@@ -196,10 +196,11 @@ func projectsGet(d *Daemon, r *http.Request) response.Response {
 // projectUsedBy returns a list of URLs for all instances, images, profiles,
 // storage volumes, networks, and acls that use this project.
 func projectUsedBy(tx *db.ClusterTx, project *cluster.Project) ([]string, error) {
-	instances, err := tx.GetInstanceURIs(db.InstanceFilter{Project: &project.Name})
-	if err != nil {
-		return nil, err
-	}
+	// TODO: MASNAX
+	//instances, err := tx.GetInstanceURIs(db.InstanceFilter{Project: &project.Name})
+	//if err != nil {
+	//	return nil, err
+	//}
 
 	images, err := tx.GetImageURIs(db.ImageFilter{Project: &project.Name})
 	if err != nil {
@@ -226,7 +227,7 @@ func projectUsedBy(tx *db.ClusterTx, project *cluster.Project) ([]string, error)
 		return nil, err
 	}
 
-	usedBy := instances
+	usedBy := []string{}
 	usedBy = append(usedBy, images...)
 	usedBy = append(usedBy, profiles...)
 	usedBy = append(usedBy, volumes...)
@@ -961,14 +962,15 @@ func projectStateGet(d *Daemon, r *http.Request) response.Response {
 
 // Check if a project is empty.
 func projectIsEmpty(project *cluster.Project, tx *db.ClusterTx) (bool, error) {
-	instances, err := tx.GetInstanceURIs(db.InstanceFilter{Project: &project.Name})
-	if err != nil {
-		return false, err
-	}
+	//TODO: MASNAX
+	//instances, err := tx.GetInstanceURIs(db.InstanceFilter{Project: &project.Name})
+	//if err != nil {
+	//	return false, err
+	//}
 
-	if len(instances) > 0 {
-		return false, nil
-	}
+	//if len(instances) > 0 {
+	//	return false, nil
+	//}
 
 	images, err := tx.GetImageURIs(db.ImageFilter{Project: &project.Name})
 	if err != nil {
