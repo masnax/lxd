@@ -269,9 +269,8 @@ var ErrInstanceListStop = fmt.Errorf("search stopped")
 // instance and it's project and profiles. Accepts optional filter argument to specify a subset of instances.
 func (c *Cluster) InstanceList(filter *cluster.InstanceFilter, instanceFunc func(inst InstanceArgs, project api.Project, profiles []api.Profile) error) error {
 	var instances []InstanceArgs
-	projectMap := map[string]api.Project{}
-	projectHasProfiles := map[string]bool{}
-	profilesByProjectAndName := map[string]map[string]api.Profile{}
+	projectsByName := map[string]api.Project{}
+	profilesByProjectAndInstance := map[string]map[string][]api.Profile{}
 
 	if filter == nil {
 		filter = &cluster.InstanceFilter{}
@@ -279,18 +278,48 @@ func (c *Cluster) InstanceList(filter *cluster.InstanceFilter, instanceFunc func
 
 	// Retrieve required info from the database in single transaction for performance.
 	err := c.Transaction(context.TODO(), func(ctx context.Context, tx *ClusterTx) error {
-		dbInstances, err := tx.GetInstances(*filter)
+		dbInstances, err := cluster.GetInstances(ctx, tx.tx, *filter)
 		if err != nil {
 			return fmt.Errorf("Failed loading instances: %w", err)
 		}
 
 		instances = make([]InstanceArgs, 0, len(dbInstances))
+		profilesByProjectAndName := map[string]map[string]api.Profile{}
 		for _, instance := range dbInstances {
-			instanceArgs, err := InstanceToArgs(instance)
+			// Get expanded instance information.
+			instanceArgs, err := InstanceToArgs(ctx, tx.tx, &instance)
 			if err != nil {
 				return err
 			}
 
+			_, ok := profilesByProjectAndName[instance.Project]
+			if !ok {
+				profilesByProjectAndName[instance.Project] = map[string]api.Profile{}
+			}
+
+			_, ok = profilesByProjectAndInstance[instance.Project]
+			if !ok {
+				profilesByProjectAndInstance[instance.Project] = map[string][]api.Profile{}
+			}
+
+			// Get expanded profile info, ensuring only one lookup per profile.
+			apiProfiles := make([]api.Profile, 0, len(instanceArgs.Profiles))
+			for _, profile := range instanceArgs.Profiles {
+				_, ok := profilesByProjectAndName[instance.Project][profile.Name]
+				if ok {
+					continue
+				}
+
+				apiProfile, err := profile.ToAPI(ctx, tx.tx)
+				if err != nil {
+					return err
+				}
+
+				profilesByProjectAndName[instance.Project][profile.Name] = *apiProfile
+				apiProfiles = append(apiProfiles, *apiProfile)
+			}
+
+			profilesByProjectAndInstance[instance.Project][instance.Name] = apiProfiles
 			instances = append(instances, *instanceArgs)
 		}
 
@@ -301,34 +330,18 @@ func (c *Cluster) InstanceList(filter *cluster.InstanceFilter, instanceFunc func
 
 		// Index of all projects by name and record which projects have the profiles feature.
 		for _, project := range projects {
+			// Skip any projects not associated with an instance.
+			_, ok := profilesByProjectAndName[project.Name]
+			if !ok {
+				continue
+			}
+
 			apiProject, err := project.ToAPI(ctx, tx.tx)
 			if err != nil {
 				return err
 			}
 
-			projectMap[project.Name] = *apiProject
-			projectHasProfiles[project.Name] = shared.IsTrue(apiProject.Config["features.profiles"])
-		}
-
-		profiles, err := cluster.GetProfiles(ctx, tx.tx, cluster.ProfileFilter{})
-		if err != nil {
-			return fmt.Errorf("Failed loading profiles: %w", err)
-		}
-
-		// Index of all profiles by project and name.
-		for _, profile := range profiles {
-			profilesByName, ok := profilesByProjectAndName[profile.Project]
-			if !ok {
-				profilesByName = map[string]api.Profile{}
-				profilesByProjectAndName[profile.Project] = profilesByName
-			}
-
-			apiProfile, err := profile.ToAPI(ctx, tx.tx)
-			if err != nil {
-				return err
-			}
-
-			profilesByName[profile.Name] = *apiProfile
+			projectsByName[project.Name] = *apiProject
 		}
 
 		return nil
@@ -340,20 +353,7 @@ func (c *Cluster) InstanceList(filter *cluster.InstanceFilter, instanceFunc func
 	// Call the instanceFunc provided for each instance after the transaction has ended, as we don't know if
 	// the instanceFunc will be slow or may need to make additional DB queries.
 	for _, instance := range instances {
-		profiles := make([]api.Profile, len(instance.Profiles))
-
-		// If the instance's project does not have the profiles feature enabled,
-		// we fall back to the default project.
-		profilesProject := instance.Project
-		if !projectHasProfiles[profilesProject] {
-			profilesProject = "default" // Equivalent to project.Default constant.
-		}
-
-		for j, name := range instance.Profiles {
-			profiles[j] = profilesByProjectAndName[profilesProject][name]
-		}
-
-		err = instanceFunc(instance, projectMap[instance.Project], profiles)
+		err = instanceFunc(instance, projectsByName[instance.Project], profilesByProjectAndInstance[instance.Project][instance.Name])
 		if err != nil {
 			return err
 		}
@@ -416,7 +416,7 @@ SELECT instances.name, nodes.name, projects.name
 
 // UpdateInstanceNode changes the name of an instance and the cluster member hosting it.
 // It's meant to be used when moving a non-running instance backed by ceph from one cluster node to another.
-func (c *ClusterTx) UpdateInstanceNode(project, oldName string, newName string, newNode string, volumeType int) error {
+func (c *ClusterTx) UpdateInstanceNode(ctx context.Context, project, oldName string, newName string, newNode string, volumeType int) error {
 	// First check that the container to be moved is backed by a ceph
 	// volume.
 	poolName, err := c.GetInstancePool(project, oldName)
@@ -440,7 +440,7 @@ func (c *ClusterTx) UpdateInstanceNode(project, oldName string, newName string, 
 
 	// Update the name of the container and of its snapshots, and the node
 	// ID they are associated with.
-	containerID, err := c.GetInstanceID(project, oldName)
+	containerID, err := cluster.GetInstanceID(ctx, c.tx, project, oldName)
 	if err != nil {
 		return fmt.Errorf("Failed to get instance's ID: %w", err)
 	}
@@ -490,7 +490,7 @@ func (c *ClusterTx) UpdateInstanceNode(project, oldName string, newName string, 
 
 // GetLocalInstancesInProject retuurns all instances of the given type on the local member in the given project.
 // If projectName is empty then all instances in all projects are returned.
-func (c *ClusterTx) GetLocalInstancesInProject(filter cluster.InstanceFilter) ([]cluster.Instance, error) {
+func (c *ClusterTx) GetLocalInstancesInProject(ctx context.Context, filter cluster.InstanceFilter) ([]cluster.Instance, error) {
 	node, err := c.GetLocalNodeName()
 	if err != nil {
 		return nil, fmt.Errorf("Local node name: %w", err)
@@ -500,7 +500,7 @@ func (c *ClusterTx) GetLocalInstancesInProject(filter cluster.InstanceFilter) ([
 		filter.Node = &node
 	}
 
-	return c.GetInstances(filter)
+	return cluster.GetInstances(ctx, c.tx, filter)
 }
 
 // CreateInstanceConfig inserts a new config for the container with the given ID.
@@ -608,8 +608,8 @@ func (c *ClusterTx) UpdateInstanceLastUsedDate(id int, date time.Time) error {
 }
 
 // GetInstanceSnapshotsWithName returns all snapshots of a given instance in date created order, oldest first.
-func (c *ClusterTx) GetInstanceSnapshotsWithName(project string, name string) ([]cluster.Instance, error) {
-	instance, err := c.GetInstance(project, name)
+func (c *ClusterTx) GetInstanceSnapshotsWithName(ctx context.Context, project string, name string) ([]cluster.Instance, error) {
+	instance, err := cluster.GetInstance(ctx, c.tx, project, name)
 	if err != nil {
 		return nil, err
 	}
@@ -627,7 +627,7 @@ func (c *ClusterTx) GetInstanceSnapshotsWithName(project string, name string) ([
 
 	instances := make([]cluster.Instance, len(snapshots))
 	for i, snapshot := range snapshots {
-		instances[i] = InstanceSnapshotToInstance(instance, &snapshot)
+		instances[i] = snapshot.ToInstance(instance)
 	}
 
 	return instances, nil
@@ -683,7 +683,7 @@ func (c *Cluster) DeleteInstance(project, name string) error {
 		})
 	}
 	return c.Transaction(context.TODO(), func(ctx context.Context, tx *ClusterTx) error {
-		return tx.DeleteInstance(project, name)
+		return cluster.DeleteInstance(ctx, tx.tx, project, name)
 	})
 }
 
@@ -715,7 +715,7 @@ func (c *Cluster) GetInstanceID(project, name string) (int, error) {
 	var id int64
 	err := c.Transaction(context.TODO(), func(ctx context.Context, tx *ClusterTx) error {
 		var err error
-		id, err = tx.GetInstanceID(project, name)
+		id, err = cluster.GetInstanceID(ctx, tx.tx, project, name)
 		return err
 	})
 	return int(id), err
