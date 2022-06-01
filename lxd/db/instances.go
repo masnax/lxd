@@ -320,13 +320,8 @@ func (c *Cluster) InstanceList(filter *cluster.InstanceFilter, instanceFunc func
 					continue
 				}
 
-				apiProfile, err := profile.ToAPI(ctx, tx.tx)
-				if err != nil {
-					return err
-				}
-
-				profilesByProjectAndName[instance.Project][profile.Name] = *apiProfile
-				apiProfiles = append(apiProfiles, *apiProfile)
+				profilesByProjectAndName[instance.Project][profile.Name] = profile
+				apiProfiles = append(apiProfiles, profile)
 			}
 
 			profilesByProjectAndInstance[instance.Project][instance.Name] = apiProfiles
