@@ -118,15 +118,6 @@ func (c *Cluster) GetProfiles(projectName string, profileNames []string) ([]api.
 	profiles := make([]api.Profile, len(profileNames))
 
 	err := c.Transaction(context.TODO(), func(ctx context.Context, tx *ClusterTx) error {
-		enabled, err := cluster.ProjectHasProfiles(context.Background(), tx.tx, projectName)
-		if err != nil {
-			return fmt.Errorf("Failed checking if project %q has profiles: %w", projectName, err)
-		}
-
-		if !enabled {
-			projectName = "default"
-		}
-
 		for i, profileName := range profileNames {
 			profile, err := cluster.GetProfileIfEnabled(ctx, tx.Tx(), projectName, profileName)
 			if err != nil {
