@@ -44,9 +44,19 @@ func InstanceToArgs(ctx context.Context, tx *sql.Tx, inst *cluster.Instance) (*I
 
 	args.Devices = deviceConfig.NewDevices(cluster.DevicesToAPI(devices))
 
-	args.Profiles, err = cluster.GetInstanceProfiles(ctx, tx, inst.ID)
+	profiles, err := cluster.GetInstanceProfiles(ctx, tx, inst.ID)
 	if err != nil {
 		return nil, err
+	}
+
+	apiProfiles := make([]api.Profile, 0, len(profiles))
+	for _, profile := range profiles {
+		apiProfile, err := profile.ToAPI(ctx, tx)
+		if err != nil {
+			return nil, err
+		}
+
+		apiProfiles = append(apiProfiles, *apiProfile)
 	}
 
 	args.Config, err = cluster.GetInstanceConfig(ctx, tx, inst.ID)
@@ -81,7 +91,7 @@ type InstanceArgs struct {
 	Ephemeral    bool
 	LastUsedDate time.Time
 	Name         string
-	Profiles     []cluster.Profile
+	Profiles     []api.Profile
 	Stateful     bool
 	ExpiryDate   time.Time
 }
