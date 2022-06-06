@@ -1027,7 +1027,7 @@ func CreateInternal(s *state.State, args db.InstanceArgs, clearLogDir bool) (Ins
 			return err
 		}
 
-		// TODO: Remove references to db.Device.
+		// TODO: MASNAX Remove references to db.Device.
 		devices, err := db.APIToDevices(args.Devices.CloneNative())
 		if err != nil {
 			return err
