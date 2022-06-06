@@ -8,7 +8,10 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/lxc/lxd/lxd/db/cluster"
+	"github.com/lxc/lxd/lxd/device/config"
 	"github.com/lxc/lxd/shared"
+	"github.com/lxc/lxd/shared/api"
 )
 
 // Code generation directives.
@@ -55,28 +58,72 @@ type InstanceSnapshotFilter struct {
 	Name     *string
 }
 
-// InstanceSnapshotToInstance is a temporary convenience function to merge
-// together an Instance struct and a SnapshotInstance struct into into a the
-// legacy Instance struct for a snapshot.
-func InstanceSnapshotToInstance(instance *Instance, snapshot *InstanceSnapshot) Instance {
-	return Instance{
-		ID:           snapshot.ID,
-		Project:      snapshot.Project,
-		Name:         instance.Name + shared.SnapshotDelimiter + snapshot.Name,
+// ToInstance converts an instance snapshot to a database Instance, filling in extra fields from the parent instance.
+func (s *InstanceSnapshot) ToInstance(instance *cluster.Instance) cluster.Instance {
+	return cluster.Instance{
+		ID:           s.ID,
+		Project:      s.Project,
+		Name:         instance.Name + shared.SnapshotDelimiter + s.Name,
 		Node:         instance.Node,
 		Type:         instance.Type,
 		Snapshot:     true,
 		Architecture: instance.Architecture,
 		Ephemeral:    false,
-		CreationDate: snapshot.CreationDate,
-		Stateful:     snapshot.Stateful,
+		CreationDate: s.CreationDate,
+		Stateful:     s.Stateful,
 		LastUseDate:  sql.NullTime{},
-		Description:  snapshot.Description,
-		Config:       snapshot.Config,
-		Devices:      snapshot.Devices,
-		Profiles:     instance.Profiles,
-		ExpiryDate:   snapshot.ExpiryDate,
+		Description:  s.Description,
+		ExpiryDate:   s.ExpiryDate,
 	}
+}
+
+// ToInstanceArgs is a temporary convenience function to merge
+// together an Instance struct and a SnapshotInstance struct into into a the
+// legacy Instance struct for a snapshot.
+func (s *InstanceSnapshot) ToInstanceArgs(ctx context.Context, tx *sql.Tx, instance *cluster.Instance) (*InstanceArgs, error) {
+	snapshotConfig, err := cluster.GetInstanceSnapshotConfig(ctx, tx, s.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	devices, err := cluster.GetInstanceSnapshotDevices(ctx, tx, s.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	profiles, err := cluster.GetInstanceProfiles(ctx, tx, instance.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	apiProfiles := make([]api.Profile, 0, len(profiles))
+	for _, profile := range profiles {
+		apiProfile, err := profile.ToAPI(ctx, tx)
+		if err != nil {
+			return nil, err
+		}
+
+		apiProfiles = append(apiProfiles, *apiProfile)
+	}
+
+	return &InstanceArgs{
+		ID:           s.ID,
+		Project:      s.Project,
+		Name:         instance.Name + shared.SnapshotDelimiter + s.Name,
+		Node:         instance.Node,
+		Type:         instance.Type,
+		Snapshot:     true,
+		Architecture: instance.Architecture,
+		Ephemeral:    false,
+		CreationDate: s.CreationDate,
+		Stateful:     s.Stateful,
+		LastUsedDate: sql.NullTime{}.Time,
+		Description:  s.Description,
+		Config:       snapshotConfig,
+		Devices:      config.NewDevices(cluster.DevicesToAPI(devices)),
+		Profiles:     apiProfiles,
+		ExpiryDate:   s.ExpiryDate.Time,
+	}, nil
 }
 
 // UpdateInstanceSnapshotConfig inserts/updates/deletes the provided config keys.
