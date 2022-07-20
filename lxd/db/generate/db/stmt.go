@@ -7,6 +7,7 @@ import (
 	"go/ast"
 	"go/build"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/lxc/lxd/lxd/db/generate/file"
@@ -98,13 +99,25 @@ func (s *Stmt) objects(buf *file.Buffer) error {
 	}
 
 	var where []string
+	maxFilters := 0
+	compare := "= ?"
+	if s.config["num_filters"] != "" {
+		maxFilters, err = strconv.Atoi(s.config["num_filters"])
+		if err != nil {
+			return fmt.Errorf("Failed to parse %q as integer value for num_filters", s.config["num_filters"])
+		}
+
+		if maxFilters > 1 {
+			compare = fmt.Sprintf("IN (?%s)", strings.Repeat(", ?", maxFilters-1))
+		}
+	}
 
 	if strings.HasPrefix(s.kind, "objects-by") {
 		filters := strings.Split(s.kind[len("objects-by-"):], "-and-")
 
 		for _, filter := range filters {
 			if filter == "Parent" {
-				where = append(where, fmt.Sprintf("SUBSTR(%s.name,1,?)=? ", lex.Plural(s.entity)))
+				where = append(where, fmt.Sprintf("SUBSTR(%s.name,1,?) %s ", lex.Plural(s.entity), compare))
 				continue
 			}
 
@@ -123,9 +136,9 @@ func (s *Stmt) objects(buf *file.Buffer) error {
 			coalesce, ok := field.Config["coalesce"]
 			if ok {
 				// Ensure filters operate on the coalesced value for fields using coalesce setting.
-				where = append(where, fmt.Sprintf("coalesce(%s, %s) = ? ", column, coalesce[0]))
+				where = append(where, fmt.Sprintf("coalesce(%s, %s) %s ", column, coalesce[0], compare))
 			} else {
-				where = append(where, fmt.Sprintf("%s = ? ", column))
+				where = append(where, fmt.Sprintf("%s %s ", column, compare))
 			}
 		}
 	}
