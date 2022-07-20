@@ -108,7 +108,7 @@ func (s *Stmt) objects(buf *file.Buffer) error {
 		}
 
 		if maxFilters > 1 {
-			compare = fmt.Sprintf("IN (?%s)", strings.Repeat(", ?", maxFilters-1))
+			compare = fmt.Sprintf("IN ({num_filters})")
 		}
 	}
 
@@ -257,7 +257,10 @@ func (s *Stmt) objects(buf *file.Buffer) error {
 	if mapping.Type == ReferenceTable || mapping.Type == MapTable {
 		buf.L("const %s = `%s`", stmtName, sql)
 	} else {
-		s.register(buf, stmtName, sql)
+		err := s.register(buf, stmtName, sql)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -346,7 +349,10 @@ func (s *Stmt) create(buf *file.Buffer, replace bool) error {
 	if mapping.Type == ReferenceTable || mapping.Type == MapTable {
 		buf.L("const %s = `%s`", stmtName, sql)
 	} else {
-		s.register(buf, stmtName, sql)
+		err := s.register(buf, stmtName, sql)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -360,7 +366,10 @@ func (s *Stmt) id(buf *file.Buffer) error {
 
 	sql := naturalKeySelect(s.entity, s.config, mapping)
 	stmtName := stmtCodeVar(s.entity, "ID")
-	s.register(buf, stmtName, sql)
+	err = s.register(buf, stmtName, sql)
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -377,7 +386,10 @@ func (s *Stmt) rename(buf *file.Buffer) error {
 	sql := fmt.Sprintf(stmts[s.kind], table, where)
 	kind := strings.Replace(s.kind, "-", "_", -1)
 	stmtName := stmtCodeVar(s.entity, kind)
-	s.register(buf, stmtName, sql)
+	err = s.register(buf, stmtName, sql)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -410,7 +422,10 @@ func (s *Stmt) update(buf *file.Buffer) error {
 		strings.Join(updates, ", "), "id = ?")
 	kind := strings.Replace(s.kind, "-", "_", -1)
 	stmtName := stmtCodeVar(s.entity, kind)
-	s.register(buf, stmtName, sql)
+	err = s.register(buf, stmtName, sql)
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -452,7 +467,10 @@ func (s *Stmt) delete(buf *file.Buffer) error {
 	if mapping.Type == ReferenceTable || mapping.Type == MapTable {
 		buf.L("const %s = `%s`", stmtName, sql)
 	} else {
-		s.register(buf, stmtName, sql)
+		err := s.register(buf, stmtName, sql)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -570,12 +588,26 @@ func naturalKeySelect(entity string, config map[string]string, mapping *Mapping)
 
 // Output a line of code that registers the given statement and declares the
 // associated statement code global variable.
-func (s *Stmt) register(buf *file.Buffer, stmtName, sql string, filters ...string) {
-	if s.db != "" {
-		buf.L("var %s = %s.RegisterStmt(`\n%s\n`)", stmtName, s.db, sql)
-	} else {
-		buf.L("var %s = RegisterStmt(`\n%s\n`)", stmtName, sql)
+func (s *Stmt) register(buf *file.Buffer, stmtName, sql string, filters ...string) error {
+	numFilters := ""
+	if s.config["num_filters"] != "" {
+		maxFilters, err := strconv.Atoi(s.config["num_filters"])
+		if err != nil {
+			return fmt.Errorf("Failed to parse %q as integer value for num_filters", s.config["num_filters"])
+		}
+
+		if maxFilters > 1 {
+			numFilters = fmt.Sprintf(", %s", s.config["num_filters"])
+		}
 	}
+
+	if s.db != "" {
+		buf.L("var %s = %s.RegisterStmt(`\n%s\n`%s)", stmtName, s.db, sql, numFilters)
+	} else {
+		buf.L("var %s = RegisterStmt(`\n%s\n`%s)", stmtName, sql, numFilters)
+	}
+
+	return nil
 }
 
 // Map of boilerplate statements.
