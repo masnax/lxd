@@ -5,6 +5,7 @@ package cluster
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 )
 
 // RegisterStmt register a SQL statement.
@@ -13,7 +14,15 @@ import (
 // execution.
 //
 // Return a unique registration code.
-func RegisterStmt(sql string) int {
+//
+// The additional parameter numFilters replaces the key '{num_filters}' in
+// the query string with a list of parameters of length numFilters.
+func RegisterStmt(sql string, numFilters ...int) int {
+	if len(numFilters) == 1 {
+		sql = strings.Replace(sql, "{num_filters}", fmt.Sprintf("?%s", strings.Repeat(", ?", numFilters[0]-1)), -1)
+
+	}
+
 	code := len(stmts)
 	stmts[code] = sql
 	return code
