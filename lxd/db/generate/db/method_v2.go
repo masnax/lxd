@@ -293,6 +293,24 @@ func (m *MethodV2) getMany(buf *file.Buffer) error {
 		buf.L("var args []any")
 		buf.N()
 
+		buf.L("if len(filters) == 0 {")
+		buf.L("sqlStmt = stmt(tx, %s)", stmtCodeVar(m.entity, "objects"))
+		buf.L("args = []any{}")
+		buf.L("}")
+		buf.N()
+
+		maxFilters := m.config["num_filters"]
+		if maxFilters == "" {
+			maxFilters = "1"
+		}
+
+		buf.L("if len(filters) > %s {", maxFilters)
+		buf.L("return nil, fmt.Errorf(\"No statement exists for more than %s filters, found %%d\", len(filters))", maxFilters)
+		buf.L("}")
+		buf.N()
+		buf.L("if len(filters) > 0 {")
+		buf.L("filter := filters[0]")
+
 		for i, filter := range filters {
 			branch := "if"
 			if i > 0 {
@@ -307,17 +325,24 @@ func (m *MethodV2) getMany(buf *file.Buffer) error {
 				buf.L("sqlStmt = %s.Stmt(tx, %s)", m.db, stmtCodeVar(m.entity, "objects", filter...))
 			}
 
-			buf.L("args = []any{")
-
-			for _, name := range filter {
-				if name == "Parent" {
-					buf.L("len(filter.Parent)+1,")
-					buf.L("filter.%s+\"/\",", name)
-				} else {
-					buf.L("filter.%s,", name)
-				}
+			for _, filterField := range filter {
+				sliceName := lex.Plural(lex.Minuscule(filterField))
+				buf.L("%s := make([]any, %s)", sliceName, maxFilters)
 			}
 
+			buf.L("for i, filter := range filters {")
+			for _, filterField := range filter {
+				sliceName := lex.Plural(lex.Minuscule(filterField))
+				buf.L("%s[i] = filter.%s", sliceName, filterField)
+			}
+			buf.L("}")
+			buf.N()
+
+			buf.L("args = []any{")
+			for _, filterField := range filter {
+				sliceName := lex.Plural(lex.Minuscule(filterField))
+				buf.L("%s,", sliceName)
+			}
 			buf.L("}")
 		}
 
@@ -337,6 +362,9 @@ func (m *MethodV2) getMany(buf *file.Buffer) error {
 		buf.L("} else {")
 		buf.L("return nil, fmt.Errorf(\"No statement exists for the given Filter\")")
 		buf.L("}")
+
+		buf.L("}")
+		buf.N()
 	}
 
 	buf.N()
@@ -344,7 +372,16 @@ func (m *MethodV2) getMany(buf *file.Buffer) error {
 	buf.L("dest := %s", destFunc("objects", typ, mapping.ColumnFields()))
 	buf.N()
 	buf.L("// Select.")
-	buf.L("err = query.SelectObjects(sqlStmt, dest, args...)")
+	if mapping.Type == EntityTable {
+		buf.L("allArgs := []any{}")
+		buf.L("for  _, arg := range args {")
+		buf.L("allArgs = append(allArgs, arg.([]any)...)")
+		buf.L("}")
+		buf.N()
+		buf.L("err = query.SelectObjects(sqlStmt, dest, allArgs...)")
+	} else {
+		buf.L("err = query.SelectObjects(sqlStmt, dest, args...)")
+	}
 	if mapping.Type == ReferenceTable || mapping.Type == MapTable {
 		m.ifErrNotNil(buf, true, "nil", fmt.Sprintf(`fmt.Errorf("Failed to fetch from \"%%s_%s\" table: %%w", parent, err)`, entityTable(m.entity, m.config["table"])))
 	} else {
@@ -1245,7 +1282,7 @@ func (m *MethodV2) signature(buf *file.Buffer, isInterface bool) error {
 		case "GetMany":
 			if m.ref == "" {
 				comment = fmt.Sprintf("returns all available %s.", lex.Plural(m.entity))
-				args += fmt.Sprintf("filter %s", entityFilter(m.entity))
+				args += fmt.Sprintf("filters ...%s", entityFilter(m.entity))
 				rets = fmt.Sprintf("(%s, error)", lex.Slice(lex.Camel(m.entity)))
 			} else {
 				comment = fmt.Sprintf("returns all available %s %s", mapping.Name, lex.Plural(m.ref))
