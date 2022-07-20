@@ -54,7 +54,7 @@ UPDATE certificates
 
 // GetCertificates returns all available certificates.
 // generator: certificate GetMany
-func GetCertificates(ctx context.Context, tx *sql.Tx, filter CertificateFilter) ([]Certificate, error) {
+func GetCertificates(ctx context.Context, tx *sql.Tx, filters ...CertificateFilter) ([]Certificate, error) {
 	var err error
 
 	// Result slice.
@@ -64,16 +64,33 @@ func GetCertificates(ctx context.Context, tx *sql.Tx, filter CertificateFilter) 
 	var sqlStmt *sql.Stmt
 	var args []any
 
-	if filter.Fingerprint != nil && filter.Name == nil && filter.Type == nil {
-		sqlStmt = stmt(tx, certificateObjectsByFingerprint)
-		args = []any{
-			filter.Fingerprint,
-		}
-	} else if filter.Fingerprint == nil && filter.Name == nil && filter.Type == nil {
+	if len(filters) == 0 {
 		sqlStmt = stmt(tx, certificateObjects)
 		args = []any{}
-	} else {
-		return nil, fmt.Errorf("No statement exists for the given Filter")
+	}
+
+	if len(filters) > 1 {
+		return nil, fmt.Errorf("No statement exists for more than 1 filters, found %d", len(filters))
+	}
+
+	if len(filters) > 0 {
+		filter := filters[0]
+		if filter.Fingerprint != nil && filter.Name == nil && filter.Type == nil {
+			sqlStmt = stmt(tx, certificateObjectsByFingerprint)
+			fingerprints := make([]any, 1)
+			for i, filter := range filters {
+				fingerprints[i] = filter.Fingerprint
+			}
+
+			args = []any{
+				fingerprints,
+			}
+		} else if filter.Fingerprint == nil && filter.Name == nil && filter.Type == nil {
+			sqlStmt = stmt(tx, certificateObjects)
+			args = []any{}
+		} else {
+			return nil, fmt.Errorf("No statement exists for the given Filter")
+		}
 	}
 
 	// Dest function for scanning a row.
@@ -90,7 +107,12 @@ func GetCertificates(ctx context.Context, tx *sql.Tx, filter CertificateFilter) 
 	}
 
 	// Select.
-	err = query.SelectObjects(sqlStmt, dest, args...)
+	allArgs := []any{}
+	for _, arg := range args {
+		allArgs = append(allArgs, arg.([]any)...)
+	}
+
+	err = query.SelectObjects(sqlStmt, dest, allArgs...)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to fetch from \"certificates\" table: %w", err)
 	}

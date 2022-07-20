@@ -60,7 +60,7 @@ DELETE FROM projects WHERE name = ?
 
 // GetProjects returns all available projects.
 // generator: project GetMany
-func GetProjects(ctx context.Context, tx *sql.Tx, filter ProjectFilter) ([]Project, error) {
+func GetProjects(ctx context.Context, tx *sql.Tx, filters ...ProjectFilter) ([]Project, error) {
 	var err error
 
 	// Result slice.
@@ -70,21 +70,43 @@ func GetProjects(ctx context.Context, tx *sql.Tx, filter ProjectFilter) ([]Proje
 	var sqlStmt *sql.Stmt
 	var args []any
 
-	if filter.Name != nil && filter.ID == nil {
-		sqlStmt = stmt(tx, projectObjectsByName)
-		args = []any{
-			filter.Name,
-		}
-	} else if filter.ID != nil && filter.Name == nil {
-		sqlStmt = stmt(tx, projectObjectsByID)
-		args = []any{
-			filter.ID,
-		}
-	} else if filter.ID == nil && filter.Name == nil {
+	if len(filters) == 0 {
 		sqlStmt = stmt(tx, projectObjects)
 		args = []any{}
-	} else {
-		return nil, fmt.Errorf("No statement exists for the given Filter")
+	}
+
+	if len(filters) > 1 {
+		return nil, fmt.Errorf("No statement exists for more than 1 filters, found %d", len(filters))
+	}
+
+	if len(filters) > 0 {
+		filter := filters[0]
+		if filter.Name != nil && filter.ID == nil {
+			sqlStmt = stmt(tx, projectObjectsByName)
+			names := make([]any, 1)
+			for i, filter := range filters {
+				names[i] = filter.Name
+			}
+
+			args = []any{
+				names,
+			}
+		} else if filter.ID != nil && filter.Name == nil {
+			sqlStmt = stmt(tx, projectObjectsByID)
+			ids := make([]any, 1)
+			for i, filter := range filters {
+				ids[i] = filter.ID
+			}
+
+			args = []any{
+				ids,
+			}
+		} else if filter.ID == nil && filter.Name == nil {
+			sqlStmt = stmt(tx, projectObjects)
+			args = []any{}
+		} else {
+			return nil, fmt.Errorf("No statement exists for the given Filter")
+		}
 	}
 
 	// Dest function for scanning a row.
@@ -98,7 +120,12 @@ func GetProjects(ctx context.Context, tx *sql.Tx, filter ProjectFilter) ([]Proje
 	}
 
 	// Select.
-	err = query.SelectObjects(sqlStmt, dest, args...)
+	allArgs := []any{}
+	for _, arg := range args {
+		allArgs = append(allArgs, arg.([]any)...)
+	}
+
+	err = query.SelectObjects(sqlStmt, dest, allArgs...)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to fetch from \"projects\" table: %w", err)
 	}

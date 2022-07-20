@@ -121,7 +121,7 @@ func ProfileExists(ctx context.Context, tx *sql.Tx, project string, name string)
 
 // GetProfiles returns all available profiles.
 // generator: profile GetMany
-func GetProfiles(ctx context.Context, tx *sql.Tx, filter ProfileFilter) ([]Profile, error) {
+func GetProfiles(ctx context.Context, tx *sql.Tx, filters ...ProfileFilter) ([]Profile, error) {
 	var err error
 
 	// Result slice.
@@ -131,32 +131,66 @@ func GetProfiles(ctx context.Context, tx *sql.Tx, filter ProfileFilter) ([]Profi
 	var sqlStmt *sql.Stmt
 	var args []any
 
-	if filter.Project != nil && filter.Name != nil && filter.ID == nil {
-		sqlStmt = stmt(tx, profileObjectsByProjectAndName)
-		args = []any{
-			filter.Project,
-			filter.Name,
-		}
-	} else if filter.Project != nil && filter.ID == nil && filter.Name == nil {
-		sqlStmt = stmt(tx, profileObjectsByProject)
-		args = []any{
-			filter.Project,
-		}
-	} else if filter.Name != nil && filter.ID == nil && filter.Project == nil {
-		sqlStmt = stmt(tx, profileObjectsByName)
-		args = []any{
-			filter.Name,
-		}
-	} else if filter.ID != nil && filter.Project == nil && filter.Name == nil {
-		sqlStmt = stmt(tx, profileObjectsByID)
-		args = []any{
-			filter.ID,
-		}
-	} else if filter.ID == nil && filter.Project == nil && filter.Name == nil {
+	if len(filters) == 0 {
 		sqlStmt = stmt(tx, profileObjects)
 		args = []any{}
-	} else {
-		return nil, fmt.Errorf("No statement exists for the given Filter")
+	}
+
+	if len(filters) > 1 {
+		return nil, fmt.Errorf("No statement exists for more than 1 filters, found %d", len(filters))
+	}
+
+	if len(filters) > 0 {
+		filter := filters[0]
+		if filter.Project != nil && filter.Name != nil && filter.ID == nil {
+			sqlStmt = stmt(tx, profileObjectsByProjectAndName)
+			projects := make([]any, 1)
+			names := make([]any, 1)
+			for i, filter := range filters {
+				projects[i] = filter.Project
+				names[i] = filter.Name
+			}
+
+			args = []any{
+				projects,
+				names,
+			}
+		} else if filter.Project != nil && filter.ID == nil && filter.Name == nil {
+			sqlStmt = stmt(tx, profileObjectsByProject)
+			projects := make([]any, 1)
+			for i, filter := range filters {
+				projects[i] = filter.Project
+			}
+
+			args = []any{
+				projects,
+			}
+		} else if filter.Name != nil && filter.ID == nil && filter.Project == nil {
+			sqlStmt = stmt(tx, profileObjectsByName)
+			names := make([]any, 1)
+			for i, filter := range filters {
+				names[i] = filter.Name
+			}
+
+			args = []any{
+				names,
+			}
+		} else if filter.ID != nil && filter.Project == nil && filter.Name == nil {
+			sqlStmt = stmt(tx, profileObjectsByID)
+			ids := make([]any, 1)
+			for i, filter := range filters {
+				ids[i] = filter.ID
+			}
+
+			args = []any{
+				ids,
+			}
+		} else if filter.ID == nil && filter.Project == nil && filter.Name == nil {
+			sqlStmt = stmt(tx, profileObjects)
+			args = []any{}
+		} else {
+			return nil, fmt.Errorf("No statement exists for the given Filter")
+		}
 	}
 
 	// Dest function for scanning a row.
@@ -172,7 +206,12 @@ func GetProfiles(ctx context.Context, tx *sql.Tx, filter ProfileFilter) ([]Profi
 	}
 
 	// Select.
-	err = query.SelectObjects(sqlStmt, dest, args...)
+	allArgs := []any{}
+	for _, arg := range args {
+		allArgs = append(allArgs, arg.([]any)...)
+	}
+
+	err = query.SelectObjects(sqlStmt, dest, allArgs...)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to fetch from \"profiles\" table: %w", err)
 	}
