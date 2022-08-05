@@ -18,13 +18,14 @@ import (
 // The additional parameter numFilters replaces the key '{num_filters}' in
 // the query string with a list of parameters of length numFilters.
 func RegisterStmt(sql string, numFilters ...int) int {
+	count := 1
 	if len(numFilters) == 1 {
-		sql = strings.Replace(sql, "{num_filters}", fmt.Sprintf("?%s", strings.Repeat(", ?", numFilters[0]-1)), -1)
-
+		count = numFilters[0]
+		sql = strings.Replace(sql, "{num_filters}", fmt.Sprintf("?%s", strings.Repeat(", ?", count-1)), -1)
 	}
 
 	code := len(stmts)
-	stmts[code] = sql
+	stmts[code] = stmtConfig{query: sql, numFilters: count}
 	return code
 }
 
@@ -34,7 +35,7 @@ func PrepareStmts(db *sql.DB, skipErrors bool) (map[int]*sql.Stmt, error) {
 	index := map[int]*sql.Stmt{}
 
 	for code, sql := range stmts {
-		stmt, err := db.Prepare(sql)
+		stmt, err := db.Prepare(sql.query)
 		if err != nil && !skipErrors {
 			return nil, fmt.Errorf("%q: %w", sql, err)
 		}
@@ -45,7 +46,14 @@ func PrepareStmts(db *sql.DB, skipErrors bool) (map[int]*sql.Stmt, error) {
 	return index, nil
 }
 
-var stmts = map[int]string{} // Statement code to statement SQL text.
+// stmtConfig represents information about a registered SQL statement.
+type stmtConfig struct {
+	query string
+
+	numFilters int
+}
+
+var stmts = map[int]stmtConfig{} // Statement code to statement SQL text.
 
 // PreparedStmts is a placeholder for transitioning to package-scoped transaction functions.
 var PreparedStmts = map[int]*sql.Stmt{}
@@ -58,6 +66,16 @@ func Stmt(tx *sql.Tx, code int) *sql.Stmt {
 	}
 
 	return tx.Stmt(stmt)
+}
+
+// NumFilters returns the number of filters that the statement expects. The default is 1.
+func NumFilters(code int) int {
+	stmt, ok := stmts[code]
+	if !ok {
+		panic(fmt.Sprintf("No prepared statement registered with code %d", code))
+	}
+
+	return stmt.numFilters
 }
 
 // prepare prepares a new statement from a SQL string.
