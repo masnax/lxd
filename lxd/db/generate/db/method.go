@@ -293,13 +293,35 @@ func (m *Method) getMany(buf *file.Buffer) error {
 		buf.L("var args []any")
 		buf.N()
 
+		buf.L("if len(filters) == 0 {")
+		buf.L("sqlStmt = Stmt(tx, %s)", stmtCodeVar(m.entity, "objects"))
+		buf.L("args = []any{}")
+		buf.L("}")
+		buf.N()
+
+		buf.N()
+		buf.L("if len(filters) > 0 {")
+		buf.L("filter := filters[0]")
+
 		for i, filter := range filters {
 			branch := "if"
 			if i > 0 {
 				branch = "} else if"
 			}
 
-			buf.L("%s %s {", branch, activeCriteria(filter, ignoredFilters[i]))
+			filterConditions := activeCriteria(filter, ignoredFilters[i])
+			buf.L("%s %s {", branch, filterConditions)
+
+			numFilters := fmt.Sprintf("NumFilters(%s)", stmtCodeVar(m.entity, "objects", filter...))
+			if m.db != "" {
+				numFilters = fmt.Sprintf("%s.%s", m.db, numFilters)
+			}
+
+			buf.L("numFilters := %s", numFilters)
+			buf.L("if len(filters) > numFilters {")
+			buf.L("return nil, fmt.Errorf(\"No %s statement exists for more than %%d filters, found %%d\", len(filters), numFilters)", m.entity)
+			buf.L("}")
+			buf.N()
 
 			if m.db == "" {
 				buf.L("sqlStmt = Stmt(tx, %s)", stmtCodeVar(m.entity, "objects", filter...))
@@ -307,17 +329,29 @@ func (m *Method) getMany(buf *file.Buffer) error {
 				buf.L("sqlStmt = %s.Stmt(tx, %s)", m.db, stmtCodeVar(m.entity, "objects", filter...))
 			}
 
-			buf.L("args = []any{")
-
-			for _, name := range filter {
-				if name == "Parent" {
-					buf.L("len(filter.Parent)+1,")
-					buf.L("filter.%s+\"/\",", name)
-				} else {
-					buf.L("filter.%s,", name)
-				}
+			for _, filterField := range filter {
+				sliceName := lex.Plural(lex.Minuscule(filterField))
+				buf.L("%s := make([]any, numFilters)", sliceName)
 			}
 
+			buf.L("for i, filter := range filters {")
+			buf.L("if !(%s) {", filterConditions)
+			buf.L("return nil, fmt.Errorf(\"All %s filters are not the same\")", m.entity)
+			buf.L("}")
+			buf.N()
+
+			for _, filterField := range filter {
+				sliceName := lex.Plural(lex.Minuscule(filterField))
+				buf.L("%s[i] = filter.%s", sliceName, filterField)
+			}
+			buf.L("}")
+			buf.N()
+
+			buf.L("args = []any{")
+			for _, filterField := range filter {
+				sliceName := lex.Plural(lex.Minuscule(filterField))
+				buf.L("%s,", sliceName)
+			}
 			buf.L("}")
 		}
 
@@ -337,6 +371,9 @@ func (m *Method) getMany(buf *file.Buffer) error {
 		buf.L("} else {")
 		buf.L("return nil, fmt.Errorf(\"No statement exists for the given Filter\")")
 		buf.L("}")
+
+		buf.L("}")
+		buf.N()
 	}
 
 	buf.N()
@@ -344,7 +381,16 @@ func (m *Method) getMany(buf *file.Buffer) error {
 	buf.L("dest := %s", destFunc("objects", typ, mapping.ColumnFields()))
 	buf.N()
 	buf.L("// Select.")
-	buf.L("err = query.SelectObjects(sqlStmt, dest, args...)")
+	if mapping.Type == EntityTable {
+		buf.L("allArgs := []any{}")
+		buf.L("for  _, arg := range args {")
+		buf.L("allArgs = append(allArgs, arg.([]any)...)")
+		buf.L("}")
+		buf.N()
+		buf.L("err = query.SelectObjects(sqlStmt, dest, allArgs...)")
+	} else {
+		buf.L("err = query.SelectObjects(sqlStmt, dest, args...)")
+	}
 	if mapping.Type == ReferenceTable || mapping.Type == MapTable {
 		m.ifErrNotNil(buf, true, "nil", fmt.Sprintf(`fmt.Errorf("Failed to fetch from \"%%s_%s\" table: %%w", parent, err)`, entityTable(m.entity, m.config["table"])))
 	} else {
@@ -1245,7 +1291,7 @@ func (m *Method) signature(buf *file.Buffer, isInterface bool) error {
 		case "GetMany":
 			if m.ref == "" {
 				comment = fmt.Sprintf("returns all available %s.", lex.Plural(m.entity))
-				args += fmt.Sprintf("filter %s", entityFilter(m.entity))
+				args += fmt.Sprintf("filters ...%s", entityFilter(m.entity))
 				rets = fmt.Sprintf("(%s, error)", lex.Slice(lex.Camel(m.entity)))
 			} else {
 				comment = fmt.Sprintf("returns all available %s %s", mapping.Name, lex.Plural(m.ref))
