@@ -60,7 +60,7 @@ DELETE FROM instances_snapshots WHERE instance_id = (SELECT instances.id FROM in
 
 // GetInstanceSnapshots returns all available instance_snapshots.
 // generator: instance_snapshot GetMany
-func GetInstanceSnapshots(ctx context.Context, tx *sql.Tx, filter InstanceSnapshotFilter) ([]InstanceSnapshot, error) {
+func GetInstanceSnapshots(ctx context.Context, tx *sql.Tx, filters ...InstanceSnapshotFilter) ([]InstanceSnapshot, error) {
 	var err error
 
 	// Result slice.
@@ -70,29 +70,85 @@ func GetInstanceSnapshots(ctx context.Context, tx *sql.Tx, filter InstanceSnapsh
 	var sqlStmt *sql.Stmt
 	var args []any
 
-	if filter.Project != nil && filter.Instance != nil && filter.Name != nil && filter.ID == nil {
-		sqlStmt = Stmt(tx, instanceSnapshotObjectsByProjectAndInstanceAndName)
-		args = []any{
-			filter.Project,
-			filter.Instance,
-			filter.Name,
-		}
-	} else if filter.Project != nil && filter.Instance != nil && filter.ID == nil && filter.Name == nil {
-		sqlStmt = Stmt(tx, instanceSnapshotObjectsByProjectAndInstance)
-		args = []any{
-			filter.Project,
-			filter.Instance,
-		}
-	} else if filter.ID != nil && filter.Project == nil && filter.Instance == nil && filter.Name == nil {
-		sqlStmt = Stmt(tx, instanceSnapshotObjectsByID)
-		args = []any{
-			filter.ID,
-		}
-	} else if filter.ID == nil && filter.Project == nil && filter.Instance == nil && filter.Name == nil {
+	if len(filters) == 0 {
 		sqlStmt = Stmt(tx, instanceSnapshotObjects)
 		args = []any{}
-	} else {
-		return nil, fmt.Errorf("No statement exists for the given Filter")
+	}
+
+	if len(filters) > 0 {
+		filter := filters[0]
+		if filter.Project != nil && filter.Instance != nil && filter.Name != nil && filter.ID == nil {
+			numFilters := NumFilters(instanceSnapshotObjectsByProjectAndInstanceAndName)
+			if len(filters) > numFilters {
+				return nil, fmt.Errorf("No instance_snapshot statement exists for more than %d filters, found %d", len(filters), numFilters)
+			}
+
+			sqlStmt = Stmt(tx, instanceSnapshotObjectsByProjectAndInstanceAndName)
+			projects := make([]any, numFilters)
+			instances := make([]any, numFilters)
+			names := make([]any, numFilters)
+			for i, filter := range filters {
+				if !(filter.Project != nil && filter.Instance != nil && filter.Name != nil && filter.ID == nil) {
+					return nil, fmt.Errorf("All instance_snapshot filters are not the same")
+				}
+
+				projects[i] = filter.Project
+				instances[i] = filter.Instance
+				names[i] = filter.Name
+			}
+
+			args = []any{
+				projects,
+				instances,
+				names,
+			}
+		} else if filter.Project != nil && filter.Instance != nil && filter.ID == nil && filter.Name == nil {
+			numFilters := NumFilters(instanceSnapshotObjectsByProjectAndInstance)
+			if len(filters) > numFilters {
+				return nil, fmt.Errorf("No instance_snapshot statement exists for more than %d filters, found %d", len(filters), numFilters)
+			}
+
+			sqlStmt = Stmt(tx, instanceSnapshotObjectsByProjectAndInstance)
+			projects := make([]any, numFilters)
+			instances := make([]any, numFilters)
+			for i, filter := range filters {
+				if !(filter.Project != nil && filter.Instance != nil && filter.ID == nil && filter.Name == nil) {
+					return nil, fmt.Errorf("All instance_snapshot filters are not the same")
+				}
+
+				projects[i] = filter.Project
+				instances[i] = filter.Instance
+			}
+
+			args = []any{
+				projects,
+				instances,
+			}
+		} else if filter.ID != nil && filter.Project == nil && filter.Instance == nil && filter.Name == nil {
+			numFilters := NumFilters(instanceSnapshotObjectsByID)
+			if len(filters) > numFilters {
+				return nil, fmt.Errorf("No instance_snapshot statement exists for more than %d filters, found %d", len(filters), numFilters)
+			}
+
+			sqlStmt = Stmt(tx, instanceSnapshotObjectsByID)
+			ids := make([]any, numFilters)
+			for i, filter := range filters {
+				if !(filter.ID != nil && filter.Project == nil && filter.Instance == nil && filter.Name == nil) {
+					return nil, fmt.Errorf("All instance_snapshot filters are not the same")
+				}
+
+				ids[i] = filter.ID
+			}
+
+			args = []any{
+				ids,
+			}
+		} else if filter.ID == nil && filter.Project == nil && filter.Instance == nil && filter.Name == nil {
+			sqlStmt = Stmt(tx, instanceSnapshotObjects)
+			args = []any{}
+		} else {
+			return nil, fmt.Errorf("No statement exists for the given Filter")
+		}
 	}
 
 	// Dest function for scanning a row.
@@ -111,7 +167,12 @@ func GetInstanceSnapshots(ctx context.Context, tx *sql.Tx, filter InstanceSnapsh
 	}
 
 	// Select.
-	err = query.SelectObjects(sqlStmt, dest, args...)
+	allArgs := []any{}
+	for _, arg := range args {
+		allArgs = append(allArgs, arg.([]any)...)
+	}
+
+	err = query.SelectObjects(sqlStmt, dest, allArgs...)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to fetch from \"instances_snapshots\" table: %w", err)
 	}

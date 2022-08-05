@@ -55,7 +55,7 @@ DELETE FROM operations WHERE node_id = ?
 
 // GetOperations returns all available operations.
 // generator: operation GetMany
-func GetOperations(ctx context.Context, tx *sql.Tx, filter OperationFilter) ([]Operation, error) {
+func GetOperations(ctx context.Context, tx *sql.Tx, filters ...OperationFilter) ([]Operation, error) {
 	var err error
 
 	// Result slice.
@@ -65,26 +65,76 @@ func GetOperations(ctx context.Context, tx *sql.Tx, filter OperationFilter) ([]O
 	var sqlStmt *sql.Stmt
 	var args []any
 
-	if filter.UUID != nil && filter.ID == nil && filter.NodeID == nil {
-		sqlStmt = Stmt(tx, operationObjectsByUUID)
-		args = []any{
-			filter.UUID,
-		}
-	} else if filter.NodeID != nil && filter.ID == nil && filter.UUID == nil {
-		sqlStmt = Stmt(tx, operationObjectsByNodeID)
-		args = []any{
-			filter.NodeID,
-		}
-	} else if filter.ID != nil && filter.NodeID == nil && filter.UUID == nil {
-		sqlStmt = Stmt(tx, operationObjectsByID)
-		args = []any{
-			filter.ID,
-		}
-	} else if filter.ID == nil && filter.NodeID == nil && filter.UUID == nil {
+	if len(filters) == 0 {
 		sqlStmt = Stmt(tx, operationObjects)
 		args = []any{}
-	} else {
-		return nil, fmt.Errorf("No statement exists for the given Filter")
+	}
+
+	if len(filters) > 0 {
+		filter := filters[0]
+		if filter.UUID != nil && filter.ID == nil && filter.NodeID == nil {
+			numFilters := NumFilters(operationObjectsByUUID)
+			if len(filters) > numFilters {
+				return nil, fmt.Errorf("No operation statement exists for more than %d filters, found %d", len(filters), numFilters)
+			}
+
+			sqlStmt = Stmt(tx, operationObjectsByUUID)
+			uuids := make([]any, numFilters)
+			for i, filter := range filters {
+				if !(filter.UUID != nil && filter.ID == nil && filter.NodeID == nil) {
+					return nil, fmt.Errorf("All operation filters are not the same")
+				}
+
+				uuids[i] = filter.UUID
+			}
+
+			args = []any{
+				uuids,
+			}
+		} else if filter.NodeID != nil && filter.ID == nil && filter.UUID == nil {
+			numFilters := NumFilters(operationObjectsByNodeID)
+			if len(filters) > numFilters {
+				return nil, fmt.Errorf("No operation statement exists for more than %d filters, found %d", len(filters), numFilters)
+			}
+
+			sqlStmt = Stmt(tx, operationObjectsByNodeID)
+			nodeIDs := make([]any, numFilters)
+			for i, filter := range filters {
+				if !(filter.NodeID != nil && filter.ID == nil && filter.UUID == nil) {
+					return nil, fmt.Errorf("All operation filters are not the same")
+				}
+
+				nodeIDs[i] = filter.NodeID
+			}
+
+			args = []any{
+				nodeIDs,
+			}
+		} else if filter.ID != nil && filter.NodeID == nil && filter.UUID == nil {
+			numFilters := NumFilters(operationObjectsByID)
+			if len(filters) > numFilters {
+				return nil, fmt.Errorf("No operation statement exists for more than %d filters, found %d", len(filters), numFilters)
+			}
+
+			sqlStmt = Stmt(tx, operationObjectsByID)
+			ids := make([]any, numFilters)
+			for i, filter := range filters {
+				if !(filter.ID != nil && filter.NodeID == nil && filter.UUID == nil) {
+					return nil, fmt.Errorf("All operation filters are not the same")
+				}
+
+				ids[i] = filter.ID
+			}
+
+			args = []any{
+				ids,
+			}
+		} else if filter.ID == nil && filter.NodeID == nil && filter.UUID == nil {
+			sqlStmt = Stmt(tx, operationObjects)
+			args = []any{}
+		} else {
+			return nil, fmt.Errorf("No statement exists for the given Filter")
+		}
 	}
 
 	// Dest function for scanning a row.
@@ -101,7 +151,12 @@ func GetOperations(ctx context.Context, tx *sql.Tx, filter OperationFilter) ([]O
 	}
 
 	// Select.
-	err = query.SelectObjects(sqlStmt, dest, args...)
+	allArgs := []any{}
+	for _, arg := range args {
+		allArgs = append(allArgs, arg.([]any)...)
+	}
+
+	err = query.SelectObjects(sqlStmt, dest, allArgs...)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to fetch from \"operations\" table: %w", err)
 	}

@@ -60,7 +60,7 @@ DELETE FROM projects WHERE name = ?
 
 // GetProjects returns all available projects.
 // generator: project GetMany
-func GetProjects(ctx context.Context, tx *sql.Tx, filter ProjectFilter) ([]Project, error) {
+func GetProjects(ctx context.Context, tx *sql.Tx, filters ...ProjectFilter) ([]Project, error) {
 	var err error
 
 	// Result slice.
@@ -70,21 +70,57 @@ func GetProjects(ctx context.Context, tx *sql.Tx, filter ProjectFilter) ([]Proje
 	var sqlStmt *sql.Stmt
 	var args []any
 
-	if filter.Name != nil && filter.ID == nil {
-		sqlStmt = Stmt(tx, projectObjectsByName)
-		args = []any{
-			filter.Name,
-		}
-	} else if filter.ID != nil && filter.Name == nil {
-		sqlStmt = Stmt(tx, projectObjectsByID)
-		args = []any{
-			filter.ID,
-		}
-	} else if filter.ID == nil && filter.Name == nil {
+	if len(filters) == 0 {
 		sqlStmt = Stmt(tx, projectObjects)
 		args = []any{}
-	} else {
-		return nil, fmt.Errorf("No statement exists for the given Filter")
+	}
+
+	if len(filters) > 0 {
+		filter := filters[0]
+		if filter.Name != nil && filter.ID == nil {
+			numFilters := NumFilters(projectObjectsByName)
+			if len(filters) > numFilters {
+				return nil, fmt.Errorf("No project statement exists for more than %d filters, found %d", len(filters), numFilters)
+			}
+
+			sqlStmt = Stmt(tx, projectObjectsByName)
+			names := make([]any, numFilters)
+			for i, filter := range filters {
+				if !(filter.Name != nil && filter.ID == nil) {
+					return nil, fmt.Errorf("All project filters are not the same")
+				}
+
+				names[i] = filter.Name
+			}
+
+			args = []any{
+				names,
+			}
+		} else if filter.ID != nil && filter.Name == nil {
+			numFilters := NumFilters(projectObjectsByID)
+			if len(filters) > numFilters {
+				return nil, fmt.Errorf("No project statement exists for more than %d filters, found %d", len(filters), numFilters)
+			}
+
+			sqlStmt = Stmt(tx, projectObjectsByID)
+			ids := make([]any, numFilters)
+			for i, filter := range filters {
+				if !(filter.ID != nil && filter.Name == nil) {
+					return nil, fmt.Errorf("All project filters are not the same")
+				}
+
+				ids[i] = filter.ID
+			}
+
+			args = []any{
+				ids,
+			}
+		} else if filter.ID == nil && filter.Name == nil {
+			sqlStmt = Stmt(tx, projectObjects)
+			args = []any{}
+		} else {
+			return nil, fmt.Errorf("No statement exists for the given Filter")
+		}
 	}
 
 	// Dest function for scanning a row.
@@ -98,7 +134,12 @@ func GetProjects(ctx context.Context, tx *sql.Tx, filter ProjectFilter) ([]Proje
 	}
 
 	// Select.
-	err = query.SelectObjects(sqlStmt, dest, args...)
+	allArgs := []any{}
+	for _, arg := range args {
+		allArgs = append(allArgs, arg.([]any)...)
+	}
+
+	err = query.SelectObjects(sqlStmt, dest, allArgs...)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to fetch from \"projects\" table: %w", err)
 	}

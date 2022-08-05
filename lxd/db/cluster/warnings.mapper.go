@@ -73,7 +73,7 @@ SELECT warnings.id FROM warnings
 
 // GetWarnings returns all available warnings.
 // generator: warning GetMany
-func GetWarnings(ctx context.Context, tx *sql.Tx, filter WarningFilter) ([]Warning, error) {
+func GetWarnings(ctx context.Context, tx *sql.Tx, filters ...WarningFilter) ([]Warning, error) {
 	var err error
 
 	// Result slice.
@@ -83,48 +83,154 @@ func GetWarnings(ctx context.Context, tx *sql.Tx, filter WarningFilter) ([]Warni
 	var sqlStmt *sql.Stmt
 	var args []any
 
-	if filter.Node != nil && filter.TypeCode != nil && filter.Project != nil && filter.EntityTypeCode != nil && filter.EntityID != nil && filter.ID == nil && filter.UUID == nil && filter.Status == nil {
-		sqlStmt = Stmt(tx, warningObjectsByNodeAndTypeCodeAndProjectAndEntityTypeCodeAndEntityID)
-		args = []any{
-			filter.Node,
-			filter.TypeCode,
-			filter.Project,
-			filter.EntityTypeCode,
-			filter.EntityID,
-		}
-	} else if filter.Node != nil && filter.TypeCode != nil && filter.Project != nil && filter.ID == nil && filter.UUID == nil && filter.EntityTypeCode == nil && filter.EntityID == nil && filter.Status == nil {
-		sqlStmt = Stmt(tx, warningObjectsByNodeAndTypeCodeAndProject)
-		args = []any{
-			filter.Node,
-			filter.TypeCode,
-			filter.Project,
-		}
-	} else if filter.Node != nil && filter.TypeCode != nil && filter.ID == nil && filter.UUID == nil && filter.Project == nil && filter.EntityTypeCode == nil && filter.EntityID == nil && filter.Status == nil {
-		sqlStmt = Stmt(tx, warningObjectsByNodeAndTypeCode)
-		args = []any{
-			filter.Node,
-			filter.TypeCode,
-		}
-	} else if filter.UUID != nil && filter.ID == nil && filter.Project == nil && filter.Node == nil && filter.TypeCode == nil && filter.EntityTypeCode == nil && filter.EntityID == nil && filter.Status == nil {
-		sqlStmt = Stmt(tx, warningObjectsByUUID)
-		args = []any{
-			filter.UUID,
-		}
-	} else if filter.Status != nil && filter.ID == nil && filter.UUID == nil && filter.Project == nil && filter.Node == nil && filter.TypeCode == nil && filter.EntityTypeCode == nil && filter.EntityID == nil {
-		sqlStmt = Stmt(tx, warningObjectsByStatus)
-		args = []any{
-			filter.Status,
-		}
-	} else if filter.Project != nil && filter.ID == nil && filter.UUID == nil && filter.Node == nil && filter.TypeCode == nil && filter.EntityTypeCode == nil && filter.EntityID == nil && filter.Status == nil {
-		sqlStmt = Stmt(tx, warningObjectsByProject)
-		args = []any{
-			filter.Project,
-		}
-	} else if filter.ID == nil && filter.UUID == nil && filter.Project == nil && filter.Node == nil && filter.TypeCode == nil && filter.EntityTypeCode == nil && filter.EntityID == nil && filter.Status == nil {
+	if len(filters) == 0 {
 		sqlStmt = Stmt(tx, warningObjects)
 		args = []any{}
-	} else {
-		return nil, fmt.Errorf("No statement exists for the given Filter")
+	}
+
+	if len(filters) > 0 {
+		filter := filters[0]
+		if filter.Node != nil && filter.TypeCode != nil && filter.Project != nil && filter.EntityTypeCode != nil && filter.EntityID != nil && filter.ID == nil && filter.UUID == nil && filter.Status == nil {
+			numFilters := NumFilters(warningObjectsByNodeAndTypeCodeAndProjectAndEntityTypeCodeAndEntityID)
+			if len(filters) > numFilters {
+				return nil, fmt.Errorf("No warning statement exists for more than %d filters, found %d", len(filters), numFilters)
+			}
+
+			sqlStmt = Stmt(tx, warningObjectsByNodeAndTypeCodeAndProjectAndEntityTypeCodeAndEntityID)
+			nodes := make([]any, numFilters)
+			typeCodes := make([]any, numFilters)
+			projects := make([]any, numFilters)
+			entityTypeCodes := make([]any, numFilters)
+			entityIDs := make([]any, numFilters)
+			for i, filter := range filters {
+				if !(filter.Node != nil && filter.TypeCode != nil && filter.Project != nil && filter.EntityTypeCode != nil && filter.EntityID != nil && filter.ID == nil && filter.UUID == nil && filter.Status == nil) {
+					return nil, fmt.Errorf("All warning filters are not the same")
+				}
+
+				nodes[i] = filter.Node
+				typeCodes[i] = filter.TypeCode
+				projects[i] = filter.Project
+				entityTypeCodes[i] = filter.EntityTypeCode
+				entityIDs[i] = filter.EntityID
+			}
+
+			args = []any{
+				nodes,
+				typeCodes,
+				projects,
+				entityTypeCodes,
+				entityIDs,
+			}
+		} else if filter.Node != nil && filter.TypeCode != nil && filter.Project != nil && filter.ID == nil && filter.UUID == nil && filter.EntityTypeCode == nil && filter.EntityID == nil && filter.Status == nil {
+			numFilters := NumFilters(warningObjectsByNodeAndTypeCodeAndProject)
+			if len(filters) > numFilters {
+				return nil, fmt.Errorf("No warning statement exists for more than %d filters, found %d", len(filters), numFilters)
+			}
+
+			sqlStmt = Stmt(tx, warningObjectsByNodeAndTypeCodeAndProject)
+			nodes := make([]any, numFilters)
+			typeCodes := make([]any, numFilters)
+			projects := make([]any, numFilters)
+			for i, filter := range filters {
+				if !(filter.Node != nil && filter.TypeCode != nil && filter.Project != nil && filter.ID == nil && filter.UUID == nil && filter.EntityTypeCode == nil && filter.EntityID == nil && filter.Status == nil) {
+					return nil, fmt.Errorf("All warning filters are not the same")
+				}
+
+				nodes[i] = filter.Node
+				typeCodes[i] = filter.TypeCode
+				projects[i] = filter.Project
+			}
+
+			args = []any{
+				nodes,
+				typeCodes,
+				projects,
+			}
+		} else if filter.Node != nil && filter.TypeCode != nil && filter.ID == nil && filter.UUID == nil && filter.Project == nil && filter.EntityTypeCode == nil && filter.EntityID == nil && filter.Status == nil {
+			numFilters := NumFilters(warningObjectsByNodeAndTypeCode)
+			if len(filters) > numFilters {
+				return nil, fmt.Errorf("No warning statement exists for more than %d filters, found %d", len(filters), numFilters)
+			}
+
+			sqlStmt = Stmt(tx, warningObjectsByNodeAndTypeCode)
+			nodes := make([]any, numFilters)
+			typeCodes := make([]any, numFilters)
+			for i, filter := range filters {
+				if !(filter.Node != nil && filter.TypeCode != nil && filter.ID == nil && filter.UUID == nil && filter.Project == nil && filter.EntityTypeCode == nil && filter.EntityID == nil && filter.Status == nil) {
+					return nil, fmt.Errorf("All warning filters are not the same")
+				}
+
+				nodes[i] = filter.Node
+				typeCodes[i] = filter.TypeCode
+			}
+
+			args = []any{
+				nodes,
+				typeCodes,
+			}
+		} else if filter.UUID != nil && filter.ID == nil && filter.Project == nil && filter.Node == nil && filter.TypeCode == nil && filter.EntityTypeCode == nil && filter.EntityID == nil && filter.Status == nil {
+			numFilters := NumFilters(warningObjectsByUUID)
+			if len(filters) > numFilters {
+				return nil, fmt.Errorf("No warning statement exists for more than %d filters, found %d", len(filters), numFilters)
+			}
+
+			sqlStmt = Stmt(tx, warningObjectsByUUID)
+			uuids := make([]any, numFilters)
+			for i, filter := range filters {
+				if !(filter.UUID != nil && filter.ID == nil && filter.Project == nil && filter.Node == nil && filter.TypeCode == nil && filter.EntityTypeCode == nil && filter.EntityID == nil && filter.Status == nil) {
+					return nil, fmt.Errorf("All warning filters are not the same")
+				}
+
+				uuids[i] = filter.UUID
+			}
+
+			args = []any{
+				uuids,
+			}
+		} else if filter.Status != nil && filter.ID == nil && filter.UUID == nil && filter.Project == nil && filter.Node == nil && filter.TypeCode == nil && filter.EntityTypeCode == nil && filter.EntityID == nil {
+			numFilters := NumFilters(warningObjectsByStatus)
+			if len(filters) > numFilters {
+				return nil, fmt.Errorf("No warning statement exists for more than %d filters, found %d", len(filters), numFilters)
+			}
+
+			sqlStmt = Stmt(tx, warningObjectsByStatus)
+			status := make([]any, numFilters)
+			for i, filter := range filters {
+				if !(filter.Status != nil && filter.ID == nil && filter.UUID == nil && filter.Project == nil && filter.Node == nil && filter.TypeCode == nil && filter.EntityTypeCode == nil && filter.EntityID == nil) {
+					return nil, fmt.Errorf("All warning filters are not the same")
+				}
+
+				status[i] = filter.Status
+			}
+
+			args = []any{
+				status,
+			}
+		} else if filter.Project != nil && filter.ID == nil && filter.UUID == nil && filter.Node == nil && filter.TypeCode == nil && filter.EntityTypeCode == nil && filter.EntityID == nil && filter.Status == nil {
+			numFilters := NumFilters(warningObjectsByProject)
+			if len(filters) > numFilters {
+				return nil, fmt.Errorf("No warning statement exists for more than %d filters, found %d", len(filters), numFilters)
+			}
+
+			sqlStmt = Stmt(tx, warningObjectsByProject)
+			projects := make([]any, numFilters)
+			for i, filter := range filters {
+				if !(filter.Project != nil && filter.ID == nil && filter.UUID == nil && filter.Node == nil && filter.TypeCode == nil && filter.EntityTypeCode == nil && filter.EntityID == nil && filter.Status == nil) {
+					return nil, fmt.Errorf("All warning filters are not the same")
+				}
+
+				projects[i] = filter.Project
+			}
+
+			args = []any{
+				projects,
+			}
+		} else if filter.ID == nil && filter.UUID == nil && filter.Project == nil && filter.Node == nil && filter.TypeCode == nil && filter.EntityTypeCode == nil && filter.EntityID == nil && filter.Status == nil {
+			sqlStmt = Stmt(tx, warningObjects)
+			args = []any{}
+		} else {
+			return nil, fmt.Errorf("No statement exists for the given Filter")
+		}
 	}
 
 	// Dest function for scanning a row.
@@ -148,7 +254,12 @@ func GetWarnings(ctx context.Context, tx *sql.Tx, filter WarningFilter) ([]Warni
 	}
 
 	// Select.
-	err = query.SelectObjects(sqlStmt, dest, args...)
+	allArgs := []any{}
+	for _, arg := range args {
+		allArgs = append(allArgs, arg.([]any)...)
+	}
+
+	err = query.SelectObjects(sqlStmt, dest, allArgs...)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to fetch from \"warnings\" table: %w", err)
 	}

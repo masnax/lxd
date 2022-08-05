@@ -66,7 +66,7 @@ SELECT images.id, projects.name AS project, images.fingerprint, images.type, ima
 
 // GetImages returns all available images.
 // generator: image GetMany
-func GetImages(ctx context.Context, tx *sql.Tx, filter ImageFilter) ([]Image, error) {
+func GetImages(ctx context.Context, tx *sql.Tx, filters ...ImageFilter) ([]Image, error) {
 	var err error
 
 	// Result slice.
@@ -76,48 +76,158 @@ func GetImages(ctx context.Context, tx *sql.Tx, filter ImageFilter) ([]Image, er
 	var sqlStmt *sql.Stmt
 	var args []any
 
-	if filter.Project != nil && filter.Public != nil && filter.ID == nil && filter.Fingerprint == nil && filter.Cached == nil && filter.AutoUpdate == nil {
-		sqlStmt = Stmt(tx, imageObjectsByProjectAndPublic)
-		args = []any{
-			filter.Project,
-			filter.Public,
-		}
-	} else if filter.Project != nil && filter.Cached != nil && filter.ID == nil && filter.Fingerprint == nil && filter.Public == nil && filter.AutoUpdate == nil {
-		sqlStmt = Stmt(tx, imageObjectsByProjectAndCached)
-		args = []any{
-			filter.Project,
-			filter.Cached,
-		}
-	} else if filter.Project != nil && filter.ID == nil && filter.Fingerprint == nil && filter.Public == nil && filter.Cached == nil && filter.AutoUpdate == nil {
-		sqlStmt = Stmt(tx, imageObjectsByProject)
-		args = []any{
-			filter.Project,
-		}
-	} else if filter.ID != nil && filter.Project == nil && filter.Fingerprint == nil && filter.Public == nil && filter.Cached == nil && filter.AutoUpdate == nil {
-		sqlStmt = Stmt(tx, imageObjectsByID)
-		args = []any{
-			filter.ID,
-		}
-	} else if filter.Fingerprint != nil && filter.ID == nil && filter.Project == nil && filter.Public == nil && filter.Cached == nil && filter.AutoUpdate == nil {
-		sqlStmt = Stmt(tx, imageObjectsByFingerprint)
-		args = []any{
-			filter.Fingerprint,
-		}
-	} else if filter.Cached != nil && filter.ID == nil && filter.Project == nil && filter.Fingerprint == nil && filter.Public == nil && filter.AutoUpdate == nil {
-		sqlStmt = Stmt(tx, imageObjectsByCached)
-		args = []any{
-			filter.Cached,
-		}
-	} else if filter.AutoUpdate != nil && filter.ID == nil && filter.Project == nil && filter.Fingerprint == nil && filter.Public == nil && filter.Cached == nil {
-		sqlStmt = Stmt(tx, imageObjectsByAutoUpdate)
-		args = []any{
-			filter.AutoUpdate,
-		}
-	} else if filter.ID == nil && filter.Project == nil && filter.Fingerprint == nil && filter.Public == nil && filter.Cached == nil && filter.AutoUpdate == nil {
+	if len(filters) == 0 {
 		sqlStmt = Stmt(tx, imageObjects)
 		args = []any{}
-	} else {
-		return nil, fmt.Errorf("No statement exists for the given Filter")
+	}
+
+	if len(filters) > 0 {
+		filter := filters[0]
+		if filter.Project != nil && filter.Public != nil && filter.ID == nil && filter.Fingerprint == nil && filter.Cached == nil && filter.AutoUpdate == nil {
+			numFilters := NumFilters(imageObjectsByProjectAndPublic)
+			if len(filters) > numFilters {
+				return nil, fmt.Errorf("No image statement exists for more than %d filters, found %d", len(filters), numFilters)
+			}
+
+			sqlStmt = Stmt(tx, imageObjectsByProjectAndPublic)
+			projects := make([]any, numFilters)
+			publics := make([]any, numFilters)
+			for i, filter := range filters {
+				if !(filter.Project != nil && filter.Public != nil && filter.ID == nil && filter.Fingerprint == nil && filter.Cached == nil && filter.AutoUpdate == nil) {
+					return nil, fmt.Errorf("All image filters are not the same")
+				}
+
+				projects[i] = filter.Project
+				publics[i] = filter.Public
+			}
+
+			args = []any{
+				projects,
+				publics,
+			}
+		} else if filter.Project != nil && filter.Cached != nil && filter.ID == nil && filter.Fingerprint == nil && filter.Public == nil && filter.AutoUpdate == nil {
+			numFilters := NumFilters(imageObjectsByProjectAndCached)
+			if len(filters) > numFilters {
+				return nil, fmt.Errorf("No image statement exists for more than %d filters, found %d", len(filters), numFilters)
+			}
+
+			sqlStmt = Stmt(tx, imageObjectsByProjectAndCached)
+			projects := make([]any, numFilters)
+			cacheds := make([]any, numFilters)
+			for i, filter := range filters {
+				if !(filter.Project != nil && filter.Cached != nil && filter.ID == nil && filter.Fingerprint == nil && filter.Public == nil && filter.AutoUpdate == nil) {
+					return nil, fmt.Errorf("All image filters are not the same")
+				}
+
+				projects[i] = filter.Project
+				cacheds[i] = filter.Cached
+			}
+
+			args = []any{
+				projects,
+				cacheds,
+			}
+		} else if filter.Project != nil && filter.ID == nil && filter.Fingerprint == nil && filter.Public == nil && filter.Cached == nil && filter.AutoUpdate == nil {
+			numFilters := NumFilters(imageObjectsByProject)
+			if len(filters) > numFilters {
+				return nil, fmt.Errorf("No image statement exists for more than %d filters, found %d", len(filters), numFilters)
+			}
+
+			sqlStmt = Stmt(tx, imageObjectsByProject)
+			projects := make([]any, numFilters)
+			for i, filter := range filters {
+				if !(filter.Project != nil && filter.ID == nil && filter.Fingerprint == nil && filter.Public == nil && filter.Cached == nil && filter.AutoUpdate == nil) {
+					return nil, fmt.Errorf("All image filters are not the same")
+				}
+
+				projects[i] = filter.Project
+			}
+
+			args = []any{
+				projects,
+			}
+		} else if filter.ID != nil && filter.Project == nil && filter.Fingerprint == nil && filter.Public == nil && filter.Cached == nil && filter.AutoUpdate == nil {
+			numFilters := NumFilters(imageObjectsByID)
+			if len(filters) > numFilters {
+				return nil, fmt.Errorf("No image statement exists for more than %d filters, found %d", len(filters), numFilters)
+			}
+
+			sqlStmt = Stmt(tx, imageObjectsByID)
+			ids := make([]any, numFilters)
+			for i, filter := range filters {
+				if !(filter.ID != nil && filter.Project == nil && filter.Fingerprint == nil && filter.Public == nil && filter.Cached == nil && filter.AutoUpdate == nil) {
+					return nil, fmt.Errorf("All image filters are not the same")
+				}
+
+				ids[i] = filter.ID
+			}
+
+			args = []any{
+				ids,
+			}
+		} else if filter.Fingerprint != nil && filter.ID == nil && filter.Project == nil && filter.Public == nil && filter.Cached == nil && filter.AutoUpdate == nil {
+			numFilters := NumFilters(imageObjectsByFingerprint)
+			if len(filters) > numFilters {
+				return nil, fmt.Errorf("No image statement exists for more than %d filters, found %d", len(filters), numFilters)
+			}
+
+			sqlStmt = Stmt(tx, imageObjectsByFingerprint)
+			fingerprints := make([]any, numFilters)
+			for i, filter := range filters {
+				if !(filter.Fingerprint != nil && filter.ID == nil && filter.Project == nil && filter.Public == nil && filter.Cached == nil && filter.AutoUpdate == nil) {
+					return nil, fmt.Errorf("All image filters are not the same")
+				}
+
+				fingerprints[i] = filter.Fingerprint
+			}
+
+			args = []any{
+				fingerprints,
+			}
+		} else if filter.Cached != nil && filter.ID == nil && filter.Project == nil && filter.Fingerprint == nil && filter.Public == nil && filter.AutoUpdate == nil {
+			numFilters := NumFilters(imageObjectsByCached)
+			if len(filters) > numFilters {
+				return nil, fmt.Errorf("No image statement exists for more than %d filters, found %d", len(filters), numFilters)
+			}
+
+			sqlStmt = Stmt(tx, imageObjectsByCached)
+			cacheds := make([]any, numFilters)
+			for i, filter := range filters {
+				if !(filter.Cached != nil && filter.ID == nil && filter.Project == nil && filter.Fingerprint == nil && filter.Public == nil && filter.AutoUpdate == nil) {
+					return nil, fmt.Errorf("All image filters are not the same")
+				}
+
+				cacheds[i] = filter.Cached
+			}
+
+			args = []any{
+				cacheds,
+			}
+		} else if filter.AutoUpdate != nil && filter.ID == nil && filter.Project == nil && filter.Fingerprint == nil && filter.Public == nil && filter.Cached == nil {
+			numFilters := NumFilters(imageObjectsByAutoUpdate)
+			if len(filters) > numFilters {
+				return nil, fmt.Errorf("No image statement exists for more than %d filters, found %d", len(filters), numFilters)
+			}
+
+			sqlStmt = Stmt(tx, imageObjectsByAutoUpdate)
+			autoUpdates := make([]any, numFilters)
+			for i, filter := range filters {
+				if !(filter.AutoUpdate != nil && filter.ID == nil && filter.Project == nil && filter.Fingerprint == nil && filter.Public == nil && filter.Cached == nil) {
+					return nil, fmt.Errorf("All image filters are not the same")
+				}
+
+				autoUpdates[i] = filter.AutoUpdate
+			}
+
+			args = []any{
+				autoUpdates,
+			}
+		} else if filter.ID == nil && filter.Project == nil && filter.Fingerprint == nil && filter.Public == nil && filter.Cached == nil && filter.AutoUpdate == nil {
+			sqlStmt = Stmt(tx, imageObjects)
+			args = []any{}
+		} else {
+			return nil, fmt.Errorf("No statement exists for the given Filter")
+		}
 	}
 
 	// Dest function for scanning a row.
@@ -142,7 +252,12 @@ func GetImages(ctx context.Context, tx *sql.Tx, filter ImageFilter) ([]Image, er
 	}
 
 	// Select.
-	err = query.SelectObjects(sqlStmt, dest, args...)
+	allArgs := []any{}
+	for _, arg := range args {
+		allArgs = append(allArgs, arg.([]any)...)
+	}
+
+	err = query.SelectObjects(sqlStmt, dest, allArgs...)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to fetch from \"images\" table: %w", err)
 	}
