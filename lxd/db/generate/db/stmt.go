@@ -126,6 +126,17 @@ func (s *Stmt) objects(buf *file.Buffer) error {
 				return err
 			}
 
+			// Disable multiple filters if a field is nullable.
+			// Multiple filters work by having a set maximum number of parameters for
+			// the query's WHERE-IN clause. If fewer than num_filters filters are
+			// supplied, the remaining parameters are filled with nils.
+			// This wouldn't work with nullable fields, so they must be omitted.
+			if maxFilters > 1 {
+				if strings.Contains(field.Type.Name, "sql.Null") {
+					return fmt.Errorf("Cannot create multi-filter statement with nullable field %q, please omit num_filters", field.Name)
+				}
+			}
+
 			var column string
 			if field.IsScalar() {
 				column = lex.Snake(field.Name)
