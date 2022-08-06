@@ -34,7 +34,7 @@ import (
 //go:generate mapper stmt -e instance objects-by-Type-and-Node
 //go:generate mapper stmt -e instance objects-by-Node
 //go:generate mapper stmt -e instance objects-by-Node-and-Name
-//go:generate mapper stmt -e instance objects-by-Name
+//go:generate mapper stmt -e instance objects-by-Name num_filters=200
 //go:generate mapper stmt -e instance id
 //go:generate mapper stmt -e instance create
 //go:generate mapper stmt -e instance rename

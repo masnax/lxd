@@ -115,8 +115,8 @@ SELECT instances.id, projects.name AS project, instances.name, nodes.name AS nod
 var instanceObjectsByName = RegisterStmt(`
 SELECT instances.id, projects.name AS project, instances.name, nodes.name AS node, instances.type, instances.architecture, instances.ephemeral, instances.creation_date, instances.stateful, instances.last_use_date, coalesce(instances.description, ''), instances.expiry_date
   FROM instances JOIN projects ON instances.project_id = projects.id JOIN nodes ON instances.node_id = nodes.id
-  WHERE instances.name = ? ORDER BY projects.id, instances.name
-`)
+  WHERE instances.name IN ({num_filters}) ORDER BY projects.id, instances.name
+`, 200)
 
 var instanceID = RegisterStmt(`
 SELECT instances.id FROM instances JOIN projects ON instances.project_id = projects.id
