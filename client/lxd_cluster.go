@@ -23,6 +23,16 @@ func (r *ProtocolLXD) GetCluster() (*api.Cluster, string, error) {
 	return cluster, etag, nil
 }
 
+// GetCluster returns information about a cluster
+//
+// If this client is not trusted, the password must be supplied.
+func (r *ProtocolLXD) PostCluster(baw bool) ([]string, error) {
+	cluster := []string{}
+	_, err := r.queryStruct("POST", "/cluster", nil, "", &cluster)
+
+	return cluster, err
+}
+
 // UpdateCluster requests to bootstrap a new cluster or join an existing one.
 func (r *ProtocolLXD) UpdateCluster(cluster api.ClusterPut, ETag string) (Operation, error) {
 	if !r.HasExtension("clustering") {

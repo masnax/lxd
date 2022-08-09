@@ -48,6 +48,63 @@ var clusterCmd = APIEndpoint{
 
 	Get: APIEndpointAction{Handler: clusterGet, AccessHandler: allowAuthenticated},
 	Put: APIEndpointAction{Handler: clusterPut},
+	Patch: APIEndpointAction{Handler: func(d *Daemon, r *http.Request) response.Response {
+		var instances []dbCluster.Instance
+		err := d.State().DB.Cluster.Transaction(context.TODO(), func(ctx context.Context, ct *db.ClusterTx) error {
+			var err error
+			filters := make([]dbCluster.InstanceFilter, 0, 5)
+
+			for i := 0; i < 20; i++ {
+				n := fmt.Sprintf("cc%d", i)
+
+				filters = append(filters, dbCluster.InstanceFilter{Name: &n})
+			}
+
+			instances, err = dbCluster.GetInstances2(ctx, ct.Tx(), filters...)
+			return err
+		})
+
+		if err != nil {
+			return response.SmartError(err)
+		}
+
+		ans := []string{}
+
+		for _, i := range instances {
+			ans = append(ans, fmt.Sprintf("%s - %s", i.Name, i.Project))
+		}
+
+		return response.SyncResponse(true, ans)
+	}},
+
+	Post: APIEndpointAction{Handler: func(d *Daemon, r *http.Request) response.Response {
+		var instances []dbCluster.Instance
+		err := d.State().DB.Cluster.Transaction(context.TODO(), func(ctx context.Context, ct *db.ClusterTx) error {
+			var err error
+			filters := make([]dbCluster.InstanceFilter, 0, 5)
+
+			for i := 0; i < 128; i++ {
+				n := fmt.Sprintf("cc%d", i)
+
+				filters = append(filters, dbCluster.InstanceFilter{Name: &n})
+			}
+
+			instances, err = dbCluster.GetInstances(ctx, ct.Tx(), filters...)
+			return err
+		})
+
+		if err != nil {
+			return response.SmartError(err)
+		}
+
+		ans := []string{}
+
+		for _, i := range instances {
+			ans = append(ans, fmt.Sprintf("%s - %s", i.Name, i.Project))
+		}
+
+		return response.SyncResponse(true, ans)
+	}},
 }
 
 var clusterNodesCmd = APIEndpoint{

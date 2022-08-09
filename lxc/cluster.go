@@ -775,6 +775,8 @@ type cmdClusterListTokens struct {
 	cluster *cmdCluster
 
 	flagFormat string
+	flagMaw    bool
+	flagBaw    bool
 }
 
 func (c *cmdClusterListTokens) Command() *cobra.Command {
@@ -783,6 +785,8 @@ func (c *cmdClusterListTokens) Command() *cobra.Command {
 	cmd.Short = i18n.G("List all active cluster member join tokens")
 	cmd.Long = cli.FormatSection(i18n.G("Description"), i18n.G(`List all active cluster member join tokens`))
 	cmd.Flags().StringVarP(&c.flagFormat, "format", "f", "table", i18n.G("Format (csv|json|table|yaml|compact)")+"``")
+	cmd.Flags().BoolVar(&c.flagMaw, "maw", false, "maw")
+	cmd.Flags().BoolVar(&c.flagBaw, "baw", false, "baw")
 
 	cmd.RunE = c.Run
 
@@ -810,6 +814,23 @@ func (c *cmdClusterListTokens) Run(cmd *cobra.Command, args []string) error {
 	resource := resources[0]
 
 	// Check if clustered.
+
+	if c.flagMaw {
+		cluster, err := resource.server.PostCluster(c.flagBaw)
+		if err != nil {
+			return err
+		}
+
+		str := ""
+
+		for _, s := range cluster {
+			str += s + "\n"
+		}
+		fmt.Println(str)
+
+		return nil
+	}
+
 	cluster, _, err := resource.server.GetCluster()
 	if err != nil {
 		return err
