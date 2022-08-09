@@ -97,11 +97,7 @@ func GetInstanceSnapshots(ctx context.Context, tx *sql.Tx, filters ...InstanceSn
 				names[i] = filter.Name
 			}
 
-			args = []any{
-				projects,
-				instances,
-				names,
-			}
+			args = []any{projects, instances, names}
 		} else if filter.Project != nil && filter.Instance != nil && filter.ID == nil && filter.Name == nil {
 			numFilters := NumFilters(instanceSnapshotObjectsByProjectAndInstance)
 			if len(filters) > numFilters {
@@ -120,10 +116,7 @@ func GetInstanceSnapshots(ctx context.Context, tx *sql.Tx, filters ...InstanceSn
 				instances[i] = filter.Instance
 			}
 
-			args = []any{
-				projects,
-				instances,
-			}
+			args = []any{projects, instances}
 		} else if filter.ID != nil && filter.Project == nil && filter.Instance == nil && filter.Name == nil {
 			numFilters := NumFilters(instanceSnapshotObjectsByID)
 			if len(filters) > numFilters {
@@ -140,9 +133,7 @@ func GetInstanceSnapshots(ctx context.Context, tx *sql.Tx, filters ...InstanceSn
 				ids[i] = filter.ID
 			}
 
-			args = []any{
-				ids,
-			}
+			args = []any{ids}
 		} else if filter.ID == nil && filter.Project == nil && filter.Instance == nil && filter.Name == nil {
 			sqlStmt = Stmt(tx, instanceSnapshotObjects)
 			args = []any{}

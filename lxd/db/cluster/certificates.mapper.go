@@ -93,9 +93,7 @@ func GetCertificates(ctx context.Context, tx *sql.Tx, filters ...CertificateFilt
 				ids[i] = filter.ID
 			}
 
-			args = []any{
-				ids,
-			}
+			args = []any{ids}
 		} else if filter.Fingerprint != nil && filter.ID == nil && filter.Name == nil && filter.Type == nil {
 			numFilters := NumFilters(certificateObjectsByFingerprint)
 			if len(filters) > numFilters {
@@ -112,9 +110,7 @@ func GetCertificates(ctx context.Context, tx *sql.Tx, filters ...CertificateFilt
 				fingerprints[i] = filter.Fingerprint
 			}
 
-			args = []any{
-				fingerprints,
-			}
+			args = []any{fingerprints}
 		} else if filter.ID == nil && filter.Fingerprint == nil && filter.Name == nil && filter.Type == nil {
 			sqlStmt = Stmt(tx, certificateObjects)
 			args = []any{}

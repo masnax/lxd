@@ -114,13 +114,7 @@ func GetWarnings(ctx context.Context, tx *sql.Tx, filters ...WarningFilter) ([]W
 				entityIDs[i] = filter.EntityID
 			}
 
-			args = []any{
-				nodes,
-				typeCodes,
-				projects,
-				entityTypeCodes,
-				entityIDs,
-			}
+			args = []any{nodes, typeCodes, projects, entityTypeCodes, entityIDs}
 		} else if filter.Node != nil && filter.TypeCode != nil && filter.Project != nil && filter.ID == nil && filter.UUID == nil && filter.EntityTypeCode == nil && filter.EntityID == nil && filter.Status == nil {
 			numFilters := NumFilters(warningObjectsByNodeAndTypeCodeAndProject)
 			if len(filters) > numFilters {
@@ -141,11 +135,7 @@ func GetWarnings(ctx context.Context, tx *sql.Tx, filters ...WarningFilter) ([]W
 				projects[i] = filter.Project
 			}
 
-			args = []any{
-				nodes,
-				typeCodes,
-				projects,
-			}
+			args = []any{nodes, typeCodes, projects}
 		} else if filter.Node != nil && filter.TypeCode != nil && filter.ID == nil && filter.UUID == nil && filter.Project == nil && filter.EntityTypeCode == nil && filter.EntityID == nil && filter.Status == nil {
 			numFilters := NumFilters(warningObjectsByNodeAndTypeCode)
 			if len(filters) > numFilters {
@@ -164,10 +154,7 @@ func GetWarnings(ctx context.Context, tx *sql.Tx, filters ...WarningFilter) ([]W
 				typeCodes[i] = filter.TypeCode
 			}
 
-			args = []any{
-				nodes,
-				typeCodes,
-			}
+			args = []any{nodes, typeCodes}
 		} else if filter.UUID != nil && filter.ID == nil && filter.Project == nil && filter.Node == nil && filter.TypeCode == nil && filter.EntityTypeCode == nil && filter.EntityID == nil && filter.Status == nil {
 			numFilters := NumFilters(warningObjectsByUUID)
 			if len(filters) > numFilters {
@@ -184,9 +171,7 @@ func GetWarnings(ctx context.Context, tx *sql.Tx, filters ...WarningFilter) ([]W
 				uuids[i] = filter.UUID
 			}
 
-			args = []any{
-				uuids,
-			}
+			args = []any{uuids}
 		} else if filter.Status != nil && filter.ID == nil && filter.UUID == nil && filter.Project == nil && filter.Node == nil && filter.TypeCode == nil && filter.EntityTypeCode == nil && filter.EntityID == nil {
 			numFilters := NumFilters(warningObjectsByStatus)
 			if len(filters) > numFilters {
@@ -203,9 +188,7 @@ func GetWarnings(ctx context.Context, tx *sql.Tx, filters ...WarningFilter) ([]W
 				status[i] = filter.Status
 			}
 
-			args = []any{
-				status,
-			}
+			args = []any{status}
 		} else if filter.Project != nil && filter.ID == nil && filter.UUID == nil && filter.Node == nil && filter.TypeCode == nil && filter.EntityTypeCode == nil && filter.EntityID == nil && filter.Status == nil {
 			numFilters := NumFilters(warningObjectsByProject)
 			if len(filters) > numFilters {
@@ -222,9 +205,7 @@ func GetWarnings(ctx context.Context, tx *sql.Tx, filters ...WarningFilter) ([]W
 				projects[i] = filter.Project
 			}
 
-			args = []any{
-				projects,
-			}
+			args = []any{projects}
 		} else if filter.ID == nil && filter.UUID == nil && filter.Project == nil && filter.Node == nil && filter.TypeCode == nil && filter.EntityTypeCode == nil && filter.EntityID == nil && filter.Status == nil {
 			sqlStmt = Stmt(tx, warningObjects)
 			args = []any{}

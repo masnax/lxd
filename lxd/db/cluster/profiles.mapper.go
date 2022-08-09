@@ -156,10 +156,7 @@ func GetProfiles(ctx context.Context, tx *sql.Tx, filters ...ProfileFilter) ([]P
 				names[i] = filter.Name
 			}
 
-			args = []any{
-				projects,
-				names,
-			}
+			args = []any{projects, names}
 		} else if filter.Project != nil && filter.ID == nil && filter.Name == nil {
 			numFilters := NumFilters(profileObjectsByProject)
 			if len(filters) > numFilters {
@@ -176,9 +173,7 @@ func GetProfiles(ctx context.Context, tx *sql.Tx, filters ...ProfileFilter) ([]P
 				projects[i] = filter.Project
 			}
 
-			args = []any{
-				projects,
-			}
+			args = []any{projects}
 		} else if filter.Name != nil && filter.ID == nil && filter.Project == nil {
 			numFilters := NumFilters(profileObjectsByName)
 			if len(filters) > numFilters {
@@ -195,9 +190,7 @@ func GetProfiles(ctx context.Context, tx *sql.Tx, filters ...ProfileFilter) ([]P
 				names[i] = filter.Name
 			}
 
-			args = []any{
-				names,
-			}
+			args = []any{names}
 		} else if filter.ID != nil && filter.Project == nil && filter.Name == nil {
 			numFilters := NumFilters(profileObjectsByID)
 			if len(filters) > numFilters {
@@ -214,9 +207,7 @@ func GetProfiles(ctx context.Context, tx *sql.Tx, filters ...ProfileFilter) ([]P
 				ids[i] = filter.ID
 			}
 
-			args = []any{
-				ids,
-			}
+			args = []any{ids}
 		} else if filter.ID == nil && filter.Project == nil && filter.Name == nil {
 			sqlStmt = Stmt(tx, profileObjects)
 			args = []any{}

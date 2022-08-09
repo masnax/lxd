@@ -79,6 +79,27 @@ func activeCriteria(filter []string, ignoredFilter []string) string {
 	return expr
 }
 
+func activeCriteria2(filter []string, ignoredFilter []string) string {
+	expr := ""
+	for i, name := range filter {
+		if i > 0 {
+			expr += " && "
+		}
+
+		expr += fmt.Sprintf("%s != nil", lex.Plural(lex.Minuscule(name)))
+	}
+
+	for _, name := range ignoredFilter {
+		if len(expr) > 0 {
+			expr += " && "
+		}
+
+		expr += fmt.Sprintf("%s == nil", lex.Plural(lex.Minuscule(name)))
+	}
+
+	return expr
+}
+
 // Return the code for a "dest" function, to be passed as parameter to
 // query.SelectObjects in order to scan a single row.
 func destFunc(slice string, typ string, fields []*Field) string {

@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/lxc/lxd/lxd/db/query"
 	"github.com/lxc/lxd/shared/api"
@@ -159,364 +160,314 @@ func GetInstances(ctx context.Context, tx *sql.Tx, filters ...InstanceFilter) ([
 		args = []any{}
 	}
 
+	var ids []any
+	var projects []any
+	var names []any
+	var nodes []any
+	var types []any
+
+	for _, filter := range filters {
+		if filter.ID != nil {
+			if ids == nil {
+				ids = []any{}
+			}
+
+			ids = append(ids, filter.ID)
+		}
+
+		if filter.Project != nil {
+			if projects == nil {
+				projects = []any{}
+			}
+
+			projects = append(projects, filter.Project)
+		}
+
+		if filter.Name != nil {
+			if names == nil {
+				names = []any{}
+			}
+
+			names = append(names, filter.Name)
+		}
+
+		if filter.Node != nil {
+			if nodes == nil {
+				nodes = []any{}
+			}
+
+			nodes = append(nodes, filter.Node)
+		}
+
+		if filter.Type != nil {
+			if types == nil {
+				types = []any{}
+			}
+
+			types = append(types, filter.Type)
+		}
+
+	}
+
 	if len(filters) > 0 {
-		filter := filters[0]
-		if filter.Project != nil && filter.Type != nil && filter.Node != nil && filter.Name != nil && filter.ID == nil {
-			numFilters := NumFilters(instanceObjectsByProjectAndTypeAndNodeAndName)
-			if len(filters) > numFilters {
-				return nil, fmt.Errorf("No instance statement exists for more than %d filters, found %d", len(filters), numFilters)
-			}
+		if projects != nil && types != nil && nodes != nil && names != nil && ids == nil {
+			if len(filters) > 1 {
+				var queryStr string
+				query := stmts[instanceObjectsByProjectAndTypeAndNodeAndName]
+				queryStr = strings.Replace(query.query, "project = ?", fmt.Sprintf("project IN (?%s)", strings.Repeat(", ?", len(projects)-1)), -1)
+				queryStr = strings.Replace(query.query, "type = ?", fmt.Sprintf("type IN (?%s)", strings.Repeat(", ?", len(types)-1)), -1)
+				queryStr = strings.Replace(query.query, "node = ?", fmt.Sprintf("node IN (?%s)", strings.Repeat(", ?", len(nodes)-1)), -1)
+				queryStr = strings.Replace(query.query, "name = ?", fmt.Sprintf("name IN (?%s)", strings.Repeat(", ?", len(names)-1)), -1)
 
-			sqlStmt = Stmt(tx, instanceObjectsByProjectAndTypeAndNodeAndName)
-			projects := make([]any, numFilters)
-			types := make([]any, numFilters)
-			nodes := make([]any, numFilters)
-			names := make([]any, numFilters)
-			for i, filter := range filters {
-				if !(filter.Project != nil && filter.Type != nil && filter.Node != nil && filter.Name != nil && filter.ID == nil) {
-					return nil, fmt.Errorf("All instance filters are not the same")
+				sqlStmt, err = prepare(tx, queryStr)
+				if err != nil {
+					return nil, fmt.Errorf("Failed to prepare stmt: %w", err)
 				}
-
-				projects[i] = filter.Project
-				types[i] = filter.Type
-				nodes[i] = filter.Node
-				names[i] = filter.Name
+			} else {
+				sqlStmt = Stmt(tx, instanceObjectsByProjectAndTypeAndNodeAndName)
 			}
 
-			args = []any{
-				projects,
-				types,
-				nodes,
-				names,
-			}
-		} else if filter.Project != nil && filter.Type != nil && filter.Node != nil && filter.ID == nil && filter.Name == nil {
-			numFilters := NumFilters(instanceObjectsByProjectAndTypeAndNode)
-			if len(filters) > numFilters {
-				return nil, fmt.Errorf("No instance statement exists for more than %d filters, found %d", len(filters), numFilters)
-			}
+			args = []any{projects, types, nodes, names}
+		} else if projects != nil && types != nil && nodes != nil && ids == nil && names == nil {
+			if len(filters) > 1 {
+				var queryStr string
+				query := stmts[instanceObjectsByProjectAndTypeAndNode]
+				queryStr = strings.Replace(query.query, "project = ?", fmt.Sprintf("project IN (?%s)", strings.Repeat(", ?", len(projects)-1)), -1)
+				queryStr = strings.Replace(query.query, "type = ?", fmt.Sprintf("type IN (?%s)", strings.Repeat(", ?", len(types)-1)), -1)
+				queryStr = strings.Replace(query.query, "node = ?", fmt.Sprintf("node IN (?%s)", strings.Repeat(", ?", len(nodes)-1)), -1)
 
-			sqlStmt = Stmt(tx, instanceObjectsByProjectAndTypeAndNode)
-			projects := make([]any, numFilters)
-			types := make([]any, numFilters)
-			nodes := make([]any, numFilters)
-			for i, filter := range filters {
-				if !(filter.Project != nil && filter.Type != nil && filter.Node != nil && filter.ID == nil && filter.Name == nil) {
-					return nil, fmt.Errorf("All instance filters are not the same")
+				sqlStmt, err = prepare(tx, queryStr)
+				if err != nil {
+					return nil, fmt.Errorf("Failed to prepare stmt: %w", err)
 				}
-
-				projects[i] = filter.Project
-				types[i] = filter.Type
-				nodes[i] = filter.Node
+			} else {
+				sqlStmt = Stmt(tx, instanceObjectsByProjectAndTypeAndNode)
 			}
 
-			args = []any{
-				projects,
-				types,
-				nodes,
-			}
-		} else if filter.Project != nil && filter.Type != nil && filter.Name != nil && filter.ID == nil && filter.Node == nil {
-			numFilters := NumFilters(instanceObjectsByProjectAndTypeAndName)
-			if len(filters) > numFilters {
-				return nil, fmt.Errorf("No instance statement exists for more than %d filters, found %d", len(filters), numFilters)
-			}
+			args = []any{projects, types, nodes}
+		} else if projects != nil && types != nil && names != nil && ids == nil && nodes == nil {
+			if len(filters) > 1 {
+				var queryStr string
+				query := stmts[instanceObjectsByProjectAndTypeAndName]
+				queryStr = strings.Replace(query.query, "project = ?", fmt.Sprintf("project IN (?%s)", strings.Repeat(", ?", len(projects)-1)), -1)
+				queryStr = strings.Replace(query.query, "type = ?", fmt.Sprintf("type IN (?%s)", strings.Repeat(", ?", len(types)-1)), -1)
+				queryStr = strings.Replace(query.query, "name = ?", fmt.Sprintf("name IN (?%s)", strings.Repeat(", ?", len(names)-1)), -1)
 
-			sqlStmt = Stmt(tx, instanceObjectsByProjectAndTypeAndName)
-			projects := make([]any, numFilters)
-			types := make([]any, numFilters)
-			names := make([]any, numFilters)
-			for i, filter := range filters {
-				if !(filter.Project != nil && filter.Type != nil && filter.Name != nil && filter.ID == nil && filter.Node == nil) {
-					return nil, fmt.Errorf("All instance filters are not the same")
+				sqlStmt, err = prepare(tx, queryStr)
+				if err != nil {
+					return nil, fmt.Errorf("Failed to prepare stmt: %w", err)
 				}
-
-				projects[i] = filter.Project
-				types[i] = filter.Type
-				names[i] = filter.Name
+			} else {
+				sqlStmt = Stmt(tx, instanceObjectsByProjectAndTypeAndName)
 			}
 
-			args = []any{
-				projects,
-				types,
-				names,
-			}
-		} else if filter.Type != nil && filter.Name != nil && filter.Node != nil && filter.ID == nil && filter.Project == nil {
-			numFilters := NumFilters(instanceObjectsByTypeAndNameAndNode)
-			if len(filters) > numFilters {
-				return nil, fmt.Errorf("No instance statement exists for more than %d filters, found %d", len(filters), numFilters)
-			}
+			args = []any{projects, types, names}
+		} else if types != nil && names != nil && nodes != nil && ids == nil && projects == nil {
+			if len(filters) > 1 {
+				var queryStr string
+				query := stmts[instanceObjectsByTypeAndNameAndNode]
+				queryStr = strings.Replace(query.query, "type = ?", fmt.Sprintf("type IN (?%s)", strings.Repeat(", ?", len(types)-1)), -1)
+				queryStr = strings.Replace(query.query, "name = ?", fmt.Sprintf("name IN (?%s)", strings.Repeat(", ?", len(names)-1)), -1)
+				queryStr = strings.Replace(query.query, "node = ?", fmt.Sprintf("node IN (?%s)", strings.Repeat(", ?", len(nodes)-1)), -1)
 
-			sqlStmt = Stmt(tx, instanceObjectsByTypeAndNameAndNode)
-			types := make([]any, numFilters)
-			names := make([]any, numFilters)
-			nodes := make([]any, numFilters)
-			for i, filter := range filters {
-				if !(filter.Type != nil && filter.Name != nil && filter.Node != nil && filter.ID == nil && filter.Project == nil) {
-					return nil, fmt.Errorf("All instance filters are not the same")
+				sqlStmt, err = prepare(tx, queryStr)
+				if err != nil {
+					return nil, fmt.Errorf("Failed to prepare stmt: %w", err)
 				}
-
-				types[i] = filter.Type
-				names[i] = filter.Name
-				nodes[i] = filter.Node
+			} else {
+				sqlStmt = Stmt(tx, instanceObjectsByTypeAndNameAndNode)
 			}
 
-			args = []any{
-				types,
-				names,
-				nodes,
-			}
-		} else if filter.Project != nil && filter.Name != nil && filter.Node != nil && filter.ID == nil && filter.Type == nil {
-			numFilters := NumFilters(instanceObjectsByProjectAndNameAndNode)
-			if len(filters) > numFilters {
-				return nil, fmt.Errorf("No instance statement exists for more than %d filters, found %d", len(filters), numFilters)
-			}
+			args = []any{types, names, nodes}
+		} else if projects != nil && names != nil && nodes != nil && ids == nil && types == nil {
+			if len(filters) > 1 {
+				var queryStr string
+				query := stmts[instanceObjectsByProjectAndNameAndNode]
+				queryStr = strings.Replace(query.query, "project = ?", fmt.Sprintf("project IN (?%s)", strings.Repeat(", ?", len(projects)-1)), -1)
+				queryStr = strings.Replace(query.query, "name = ?", fmt.Sprintf("name IN (?%s)", strings.Repeat(", ?", len(names)-1)), -1)
+				queryStr = strings.Replace(query.query, "node = ?", fmt.Sprintf("node IN (?%s)", strings.Repeat(", ?", len(nodes)-1)), -1)
 
-			sqlStmt = Stmt(tx, instanceObjectsByProjectAndNameAndNode)
-			projects := make([]any, numFilters)
-			names := make([]any, numFilters)
-			nodes := make([]any, numFilters)
-			for i, filter := range filters {
-				if !(filter.Project != nil && filter.Name != nil && filter.Node != nil && filter.ID == nil && filter.Type == nil) {
-					return nil, fmt.Errorf("All instance filters are not the same")
+				sqlStmt, err = prepare(tx, queryStr)
+				if err != nil {
+					return nil, fmt.Errorf("Failed to prepare stmt: %w", err)
 				}
-
-				projects[i] = filter.Project
-				names[i] = filter.Name
-				nodes[i] = filter.Node
+			} else {
+				sqlStmt = Stmt(tx, instanceObjectsByProjectAndNameAndNode)
 			}
 
-			args = []any{
-				projects,
-				names,
-				nodes,
-			}
-		} else if filter.Project != nil && filter.Type != nil && filter.ID == nil && filter.Name == nil && filter.Node == nil {
-			numFilters := NumFilters(instanceObjectsByProjectAndType)
-			if len(filters) > numFilters {
-				return nil, fmt.Errorf("No instance statement exists for more than %d filters, found %d", len(filters), numFilters)
-			}
+			args = []any{projects, names, nodes}
+		} else if projects != nil && types != nil && ids == nil && names == nil && nodes == nil {
+			if len(filters) > 1 {
+				var queryStr string
+				query := stmts[instanceObjectsByProjectAndType]
+				queryStr = strings.Replace(query.query, "project = ?", fmt.Sprintf("project IN (?%s)", strings.Repeat(", ?", len(projects)-1)), -1)
+				queryStr = strings.Replace(query.query, "type = ?", fmt.Sprintf("type IN (?%s)", strings.Repeat(", ?", len(types)-1)), -1)
 
-			sqlStmt = Stmt(tx, instanceObjectsByProjectAndType)
-			projects := make([]any, numFilters)
-			types := make([]any, numFilters)
-			for i, filter := range filters {
-				if !(filter.Project != nil && filter.Type != nil && filter.ID == nil && filter.Name == nil && filter.Node == nil) {
-					return nil, fmt.Errorf("All instance filters are not the same")
+				sqlStmt, err = prepare(tx, queryStr)
+				if err != nil {
+					return nil, fmt.Errorf("Failed to prepare stmt: %w", err)
 				}
-
-				projects[i] = filter.Project
-				types[i] = filter.Type
+			} else {
+				sqlStmt = Stmt(tx, instanceObjectsByProjectAndType)
 			}
 
-			args = []any{
-				projects,
-				types,
-			}
-		} else if filter.Type != nil && filter.Node != nil && filter.ID == nil && filter.Project == nil && filter.Name == nil {
-			numFilters := NumFilters(instanceObjectsByTypeAndNode)
-			if len(filters) > numFilters {
-				return nil, fmt.Errorf("No instance statement exists for more than %d filters, found %d", len(filters), numFilters)
-			}
+			args = []any{projects, types}
+		} else if types != nil && nodes != nil && ids == nil && projects == nil && names == nil {
+			if len(filters) > 1 {
+				var queryStr string
+				query := stmts[instanceObjectsByTypeAndNode]
+				queryStr = strings.Replace(query.query, "type = ?", fmt.Sprintf("type IN (?%s)", strings.Repeat(", ?", len(types)-1)), -1)
+				queryStr = strings.Replace(query.query, "node = ?", fmt.Sprintf("node IN (?%s)", strings.Repeat(", ?", len(nodes)-1)), -1)
 
-			sqlStmt = Stmt(tx, instanceObjectsByTypeAndNode)
-			types := make([]any, numFilters)
-			nodes := make([]any, numFilters)
-			for i, filter := range filters {
-				if !(filter.Type != nil && filter.Node != nil && filter.ID == nil && filter.Project == nil && filter.Name == nil) {
-					return nil, fmt.Errorf("All instance filters are not the same")
+				sqlStmt, err = prepare(tx, queryStr)
+				if err != nil {
+					return nil, fmt.Errorf("Failed to prepare stmt: %w", err)
 				}
-
-				types[i] = filter.Type
-				nodes[i] = filter.Node
+			} else {
+				sqlStmt = Stmt(tx, instanceObjectsByTypeAndNode)
 			}
 
-			args = []any{
-				types,
-				nodes,
-			}
-		} else if filter.Type != nil && filter.Name != nil && filter.ID == nil && filter.Project == nil && filter.Node == nil {
-			numFilters := NumFilters(instanceObjectsByTypeAndName)
-			if len(filters) > numFilters {
-				return nil, fmt.Errorf("No instance statement exists for more than %d filters, found %d", len(filters), numFilters)
-			}
+			args = []any{types, nodes}
+		} else if types != nil && names != nil && ids == nil && projects == nil && nodes == nil {
+			if len(filters) > 1 {
+				var queryStr string
+				query := stmts[instanceObjectsByTypeAndName]
+				queryStr = strings.Replace(query.query, "type = ?", fmt.Sprintf("type IN (?%s)", strings.Repeat(", ?", len(types)-1)), -1)
+				queryStr = strings.Replace(query.query, "name = ?", fmt.Sprintf("name IN (?%s)", strings.Repeat(", ?", len(names)-1)), -1)
 
-			sqlStmt = Stmt(tx, instanceObjectsByTypeAndName)
-			types := make([]any, numFilters)
-			names := make([]any, numFilters)
-			for i, filter := range filters {
-				if !(filter.Type != nil && filter.Name != nil && filter.ID == nil && filter.Project == nil && filter.Node == nil) {
-					return nil, fmt.Errorf("All instance filters are not the same")
+				sqlStmt, err = prepare(tx, queryStr)
+				if err != nil {
+					return nil, fmt.Errorf("Failed to prepare stmt: %w", err)
 				}
-
-				types[i] = filter.Type
-				names[i] = filter.Name
+			} else {
+				sqlStmt = Stmt(tx, instanceObjectsByTypeAndName)
 			}
 
-			args = []any{
-				types,
-				names,
-			}
-		} else if filter.Project != nil && filter.Node != nil && filter.ID == nil && filter.Name == nil && filter.Type == nil {
-			numFilters := NumFilters(instanceObjectsByProjectAndNode)
-			if len(filters) > numFilters {
-				return nil, fmt.Errorf("No instance statement exists for more than %d filters, found %d", len(filters), numFilters)
-			}
+			args = []any{types, names}
+		} else if projects != nil && nodes != nil && ids == nil && names == nil && types == nil {
+			if len(filters) > 1 {
+				var queryStr string
+				query := stmts[instanceObjectsByProjectAndNode]
+				queryStr = strings.Replace(query.query, "project = ?", fmt.Sprintf("project IN (?%s)", strings.Repeat(", ?", len(projects)-1)), -1)
+				queryStr = strings.Replace(query.query, "node = ?", fmt.Sprintf("node IN (?%s)", strings.Repeat(", ?", len(nodes)-1)), -1)
 
-			sqlStmt = Stmt(tx, instanceObjectsByProjectAndNode)
-			projects := make([]any, numFilters)
-			nodes := make([]any, numFilters)
-			for i, filter := range filters {
-				if !(filter.Project != nil && filter.Node != nil && filter.ID == nil && filter.Name == nil && filter.Type == nil) {
-					return nil, fmt.Errorf("All instance filters are not the same")
+				sqlStmt, err = prepare(tx, queryStr)
+				if err != nil {
+					return nil, fmt.Errorf("Failed to prepare stmt: %w", err)
 				}
-
-				projects[i] = filter.Project
-				nodes[i] = filter.Node
+			} else {
+				sqlStmt = Stmt(tx, instanceObjectsByProjectAndNode)
 			}
 
-			args = []any{
-				projects,
-				nodes,
-			}
-		} else if filter.Project != nil && filter.Name != nil && filter.ID == nil && filter.Node == nil && filter.Type == nil {
-			numFilters := NumFilters(instanceObjectsByProjectAndName)
-			if len(filters) > numFilters {
-				return nil, fmt.Errorf("No instance statement exists for more than %d filters, found %d", len(filters), numFilters)
-			}
+			args = []any{projects, nodes}
+		} else if projects != nil && names != nil && ids == nil && nodes == nil && types == nil {
+			if len(filters) > 1 {
+				var queryStr string
+				query := stmts[instanceObjectsByProjectAndName]
+				queryStr = strings.Replace(query.query, "project = ?", fmt.Sprintf("project IN (?%s)", strings.Repeat(", ?", len(projects)-1)), -1)
+				queryStr = strings.Replace(query.query, "name = ?", fmt.Sprintf("name IN (?%s)", strings.Repeat(", ?", len(names)-1)), -1)
 
-			sqlStmt = Stmt(tx, instanceObjectsByProjectAndName)
-			projects := make([]any, numFilters)
-			names := make([]any, numFilters)
-			for i, filter := range filters {
-				if !(filter.Project != nil && filter.Name != nil && filter.ID == nil && filter.Node == nil && filter.Type == nil) {
-					return nil, fmt.Errorf("All instance filters are not the same")
+				sqlStmt, err = prepare(tx, queryStr)
+				if err != nil {
+					return nil, fmt.Errorf("Failed to prepare stmt: %w", err)
 				}
-
-				projects[i] = filter.Project
-				names[i] = filter.Name
+			} else {
+				sqlStmt = Stmt(tx, instanceObjectsByProjectAndName)
 			}
 
-			args = []any{
-				projects,
-				names,
-			}
-		} else if filter.Node != nil && filter.Name != nil && filter.ID == nil && filter.Project == nil && filter.Type == nil {
-			numFilters := NumFilters(instanceObjectsByNodeAndName)
-			if len(filters) > numFilters {
-				return nil, fmt.Errorf("No instance statement exists for more than %d filters, found %d", len(filters), numFilters)
-			}
+			args = []any{projects, names}
+		} else if nodes != nil && names != nil && ids == nil && projects == nil && types == nil {
+			if len(filters) > 1 {
+				var queryStr string
+				query := stmts[instanceObjectsByNodeAndName]
+				queryStr = strings.Replace(query.query, "node = ?", fmt.Sprintf("node IN (?%s)", strings.Repeat(", ?", len(nodes)-1)), -1)
+				queryStr = strings.Replace(query.query, "name = ?", fmt.Sprintf("name IN (?%s)", strings.Repeat(", ?", len(names)-1)), -1)
 
-			sqlStmt = Stmt(tx, instanceObjectsByNodeAndName)
-			nodes := make([]any, numFilters)
-			names := make([]any, numFilters)
-			for i, filter := range filters {
-				if !(filter.Node != nil && filter.Name != nil && filter.ID == nil && filter.Project == nil && filter.Type == nil) {
-					return nil, fmt.Errorf("All instance filters are not the same")
+				sqlStmt, err = prepare(tx, queryStr)
+				if err != nil {
+					return nil, fmt.Errorf("Failed to prepare stmt: %w", err)
 				}
-
-				nodes[i] = filter.Node
-				names[i] = filter.Name
+			} else {
+				sqlStmt = Stmt(tx, instanceObjectsByNodeAndName)
 			}
 
-			args = []any{
-				nodes,
-				names,
-			}
-		} else if filter.Type != nil && filter.ID == nil && filter.Project == nil && filter.Name == nil && filter.Node == nil {
-			numFilters := NumFilters(instanceObjectsByType)
-			if len(filters) > numFilters {
-				return nil, fmt.Errorf("No instance statement exists for more than %d filters, found %d", len(filters), numFilters)
-			}
+			args = []any{nodes, names}
+		} else if types != nil && ids == nil && projects == nil && names == nil && nodes == nil {
+			if len(filters) > 1 {
+				var queryStr string
+				query := stmts[instanceObjectsByType]
+				queryStr = strings.Replace(query.query, "type = ?", fmt.Sprintf("type IN (?%s)", strings.Repeat(", ?", len(types)-1)), -1)
 
-			sqlStmt = Stmt(tx, instanceObjectsByType)
-			types := make([]any, numFilters)
-			for i, filter := range filters {
-				if !(filter.Type != nil && filter.ID == nil && filter.Project == nil && filter.Name == nil && filter.Node == nil) {
-					return nil, fmt.Errorf("All instance filters are not the same")
+				sqlStmt, err = prepare(tx, queryStr)
+				if err != nil {
+					return nil, fmt.Errorf("Failed to prepare stmt: %w", err)
 				}
-
-				types[i] = filter.Type
+			} else {
+				sqlStmt = Stmt(tx, instanceObjectsByType)
 			}
 
-			args = []any{
-				types,
-			}
-		} else if filter.Project != nil && filter.ID == nil && filter.Name == nil && filter.Node == nil && filter.Type == nil {
-			numFilters := NumFilters(instanceObjectsByProject)
-			if len(filters) > numFilters {
-				return nil, fmt.Errorf("No instance statement exists for more than %d filters, found %d", len(filters), numFilters)
-			}
+			args = []any{types}
+		} else if projects != nil && ids == nil && names == nil && nodes == nil && types == nil {
+			if len(filters) > 1 {
+				var queryStr string
+				query := stmts[instanceObjectsByProject]
+				queryStr = strings.Replace(query.query, "project = ?", fmt.Sprintf("project IN (?%s)", strings.Repeat(", ?", len(projects)-1)), -1)
 
-			sqlStmt = Stmt(tx, instanceObjectsByProject)
-			projects := make([]any, numFilters)
-			for i, filter := range filters {
-				if !(filter.Project != nil && filter.ID == nil && filter.Name == nil && filter.Node == nil && filter.Type == nil) {
-					return nil, fmt.Errorf("All instance filters are not the same")
+				sqlStmt, err = prepare(tx, queryStr)
+				if err != nil {
+					return nil, fmt.Errorf("Failed to prepare stmt: %w", err)
 				}
-
-				projects[i] = filter.Project
+			} else {
+				sqlStmt = Stmt(tx, instanceObjectsByProject)
 			}
 
-			args = []any{
-				projects,
-			}
-		} else if filter.Node != nil && filter.ID == nil && filter.Project == nil && filter.Name == nil && filter.Type == nil {
-			numFilters := NumFilters(instanceObjectsByNode)
-			if len(filters) > numFilters {
-				return nil, fmt.Errorf("No instance statement exists for more than %d filters, found %d", len(filters), numFilters)
-			}
+			args = []any{projects}
+		} else if nodes != nil && ids == nil && projects == nil && names == nil && types == nil {
+			if len(filters) > 1 {
+				var queryStr string
+				query := stmts[instanceObjectsByNode]
+				queryStr = strings.Replace(query.query, "node = ?", fmt.Sprintf("node IN (?%s)", strings.Repeat(", ?", len(nodes)-1)), -1)
 
-			sqlStmt = Stmt(tx, instanceObjectsByNode)
-			nodes := make([]any, numFilters)
-			for i, filter := range filters {
-				if !(filter.Node != nil && filter.ID == nil && filter.Project == nil && filter.Name == nil && filter.Type == nil) {
-					return nil, fmt.Errorf("All instance filters are not the same")
+				sqlStmt, err = prepare(tx, queryStr)
+				if err != nil {
+					return nil, fmt.Errorf("Failed to prepare stmt: %w", err)
 				}
-
-				nodes[i] = filter.Node
+			} else {
+				sqlStmt = Stmt(tx, instanceObjectsByNode)
 			}
 
-			args = []any{
-				nodes,
-			}
-		} else if filter.Name != nil && filter.ID == nil && filter.Project == nil && filter.Node == nil && filter.Type == nil {
-			numFilters := NumFilters(instanceObjectsByName)
-			if len(filters) > numFilters {
-				return nil, fmt.Errorf("No instance statement exists for more than %d filters, found %d", len(filters), numFilters)
-			}
+			args = []any{nodes}
+		} else if names != nil && ids == nil && projects == nil && nodes == nil && types == nil {
+			if len(filters) > 1 {
+				var queryStr string
+				query := stmts[instanceObjectsByName]
+				queryStr = strings.Replace(query.query, "name = ?", fmt.Sprintf("name IN (?%s)", strings.Repeat(", ?", len(names)-1)), -1)
 
-			sqlStmt = Stmt(tx, instanceObjectsByName)
-			names := make([]any, numFilters)
-			for i, filter := range filters {
-				if !(filter.Name != nil && filter.ID == nil && filter.Project == nil && filter.Node == nil && filter.Type == nil) {
-					return nil, fmt.Errorf("All instance filters are not the same")
+				sqlStmt, err = prepare(tx, queryStr)
+				if err != nil {
+					return nil, fmt.Errorf("Failed to prepare stmt: %w", err)
 				}
-
-				names[i] = filter.Name
+			} else {
+				sqlStmt = Stmt(tx, instanceObjectsByName)
 			}
 
-			args = []any{
-				names,
-			}
-		} else if filter.ID != nil && filter.Project == nil && filter.Name == nil && filter.Node == nil && filter.Type == nil {
-			numFilters := NumFilters(instanceObjectsByID)
-			if len(filters) > numFilters {
-				return nil, fmt.Errorf("No instance statement exists for more than %d filters, found %d", len(filters), numFilters)
-			}
+			args = []any{names}
+		} else if ids != nil && projects == nil && names == nil && nodes == nil && types == nil {
+			if len(filters) > 1 {
+				var queryStr string
+				query := stmts[instanceObjectsByID]
+				queryStr = strings.Replace(query.query, "id = ?", fmt.Sprintf("id IN (?%s)", strings.Repeat(", ?", len(ids)-1)), -1)
 
-			sqlStmt = Stmt(tx, instanceObjectsByID)
-			ids := make([]any, numFilters)
-			for i, filter := range filters {
-				if !(filter.ID != nil && filter.Project == nil && filter.Name == nil && filter.Node == nil && filter.Type == nil) {
-					return nil, fmt.Errorf("All instance filters are not the same")
+				sqlStmt, err = prepare(tx, queryStr)
+				if err != nil {
+					return nil, fmt.Errorf("Failed to prepare stmt: %w", err)
 				}
-
-				ids[i] = filter.ID
+			} else {
+				sqlStmt = Stmt(tx, instanceObjectsByID)
 			}
 
-			args = []any{
-				ids,
-			}
-		} else if filter.ID == nil && filter.Project == nil && filter.Name == nil && filter.Node == nil && filter.Type == nil {
+			args = []any{ids}
+		} else if ids == nil && projects == nil && names == nil && nodes == nil && types == nil {
 			sqlStmt = Stmt(tx, instanceObjects)
 			args = []any{}
 		} else {

@@ -101,10 +101,7 @@ func GetImages(ctx context.Context, tx *sql.Tx, filters ...ImageFilter) ([]Image
 				publics[i] = filter.Public
 			}
 
-			args = []any{
-				projects,
-				publics,
-			}
+			args = []any{projects, publics}
 		} else if filter.Project != nil && filter.Cached != nil && filter.ID == nil && filter.Fingerprint == nil && filter.Public == nil && filter.AutoUpdate == nil {
 			numFilters := NumFilters(imageObjectsByProjectAndCached)
 			if len(filters) > numFilters {
@@ -123,10 +120,7 @@ func GetImages(ctx context.Context, tx *sql.Tx, filters ...ImageFilter) ([]Image
 				cacheds[i] = filter.Cached
 			}
 
-			args = []any{
-				projects,
-				cacheds,
-			}
+			args = []any{projects, cacheds}
 		} else if filter.Project != nil && filter.ID == nil && filter.Fingerprint == nil && filter.Public == nil && filter.Cached == nil && filter.AutoUpdate == nil {
 			numFilters := NumFilters(imageObjectsByProject)
 			if len(filters) > numFilters {
@@ -143,9 +137,7 @@ func GetImages(ctx context.Context, tx *sql.Tx, filters ...ImageFilter) ([]Image
 				projects[i] = filter.Project
 			}
 
-			args = []any{
-				projects,
-			}
+			args = []any{projects}
 		} else if filter.ID != nil && filter.Project == nil && filter.Fingerprint == nil && filter.Public == nil && filter.Cached == nil && filter.AutoUpdate == nil {
 			numFilters := NumFilters(imageObjectsByID)
 			if len(filters) > numFilters {
@@ -162,9 +154,7 @@ func GetImages(ctx context.Context, tx *sql.Tx, filters ...ImageFilter) ([]Image
 				ids[i] = filter.ID
 			}
 
-			args = []any{
-				ids,
-			}
+			args = []any{ids}
 		} else if filter.Fingerprint != nil && filter.ID == nil && filter.Project == nil && filter.Public == nil && filter.Cached == nil && filter.AutoUpdate == nil {
 			numFilters := NumFilters(imageObjectsByFingerprint)
 			if len(filters) > numFilters {
@@ -181,9 +171,7 @@ func GetImages(ctx context.Context, tx *sql.Tx, filters ...ImageFilter) ([]Image
 				fingerprints[i] = filter.Fingerprint
 			}
 
-			args = []any{
-				fingerprints,
-			}
+			args = []any{fingerprints}
 		} else if filter.Cached != nil && filter.ID == nil && filter.Project == nil && filter.Fingerprint == nil && filter.Public == nil && filter.AutoUpdate == nil {
 			numFilters := NumFilters(imageObjectsByCached)
 			if len(filters) > numFilters {
@@ -200,9 +188,7 @@ func GetImages(ctx context.Context, tx *sql.Tx, filters ...ImageFilter) ([]Image
 				cacheds[i] = filter.Cached
 			}
 
-			args = []any{
-				cacheds,
-			}
+			args = []any{cacheds}
 		} else if filter.AutoUpdate != nil && filter.ID == nil && filter.Project == nil && filter.Fingerprint == nil && filter.Public == nil && filter.Cached == nil {
 			numFilters := NumFilters(imageObjectsByAutoUpdate)
 			if len(filters) > numFilters {
@@ -219,9 +205,7 @@ func GetImages(ctx context.Context, tx *sql.Tx, filters ...ImageFilter) ([]Image
 				autoUpdates[i] = filter.AutoUpdate
 			}
 
-			args = []any{
-				autoUpdates,
-			}
+			args = []any{autoUpdates}
 		} else if filter.ID == nil && filter.Project == nil && filter.Fingerprint == nil && filter.Public == nil && filter.Cached == nil && filter.AutoUpdate == nil {
 			sqlStmt = Stmt(tx, imageObjects)
 			args = []any{}

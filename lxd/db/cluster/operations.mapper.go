@@ -88,9 +88,7 @@ func GetOperations(ctx context.Context, tx *sql.Tx, filters ...OperationFilter) 
 				uuids[i] = filter.UUID
 			}
 
-			args = []any{
-				uuids,
-			}
+			args = []any{uuids}
 		} else if filter.NodeID != nil && filter.ID == nil && filter.UUID == nil {
 			numFilters := NumFilters(operationObjectsByNodeID)
 			if len(filters) > numFilters {
@@ -107,9 +105,7 @@ func GetOperations(ctx context.Context, tx *sql.Tx, filters ...OperationFilter) 
 				nodeIDs[i] = filter.NodeID
 			}
 
-			args = []any{
-				nodeIDs,
-			}
+			args = []any{nodeIDs}
 		} else if filter.ID != nil && filter.NodeID == nil && filter.UUID == nil {
 			numFilters := NumFilters(operationObjectsByID)
 			if len(filters) > numFilters {
@@ -126,9 +122,7 @@ func GetOperations(ctx context.Context, tx *sql.Tx, filters ...OperationFilter) 
 				ids[i] = filter.ID
 			}
 
-			args = []any{
-				ids,
-			}
+			args = []any{ids}
 		} else if filter.ID == nil && filter.NodeID == nil && filter.UUID == nil {
 			sqlStmt = Stmt(tx, operationObjects)
 			args = []any{}

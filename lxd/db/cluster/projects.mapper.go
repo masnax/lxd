@@ -93,9 +93,7 @@ func GetProjects(ctx context.Context, tx *sql.Tx, filters ...ProjectFilter) ([]P
 				names[i] = filter.Name
 			}
 
-			args = []any{
-				names,
-			}
+			args = []any{names}
 		} else if filter.ID != nil && filter.Name == nil {
 			numFilters := NumFilters(projectObjectsByID)
 			if len(filters) > numFilters {
@@ -112,9 +110,7 @@ func GetProjects(ctx context.Context, tx *sql.Tx, filters ...ProjectFilter) ([]P
 				ids[i] = filter.ID
 			}
 
-			args = []any{
-				ids,
-			}
+			args = []any{ids}
 		} else if filter.ID == nil && filter.Name == nil {
 			sqlStmt = Stmt(tx, projectObjects)
 			args = []any{}
