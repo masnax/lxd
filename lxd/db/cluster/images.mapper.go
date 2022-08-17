@@ -77,44 +77,76 @@ func GetImages(ctx context.Context, tx *sql.Tx, filter ImageFilter) ([]Image, er
 	var args []any
 
 	if filter.Project != nil && filter.Public != nil && filter.ID == nil && filter.Fingerprint == nil && filter.Cached == nil && filter.AutoUpdate == nil {
-		sqlStmt = Stmt(tx, imageObjectsByProjectAndPublic)
+		sqlStmt, err = Stmt(tx, imageObjectsByProjectAndPublic)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to get \"imageObjectsByProjectAndPublic\" prepared statement: %w", err)
+		}
+
 		args = []any{
 			filter.Project,
 			filter.Public,
 		}
 	} else if filter.Project != nil && filter.Cached != nil && filter.ID == nil && filter.Fingerprint == nil && filter.Public == nil && filter.AutoUpdate == nil {
-		sqlStmt = Stmt(tx, imageObjectsByProjectAndCached)
+		sqlStmt, err = Stmt(tx, imageObjectsByProjectAndCached)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to get \"imageObjectsByProjectAndCached\" prepared statement: %w", err)
+		}
+
 		args = []any{
 			filter.Project,
 			filter.Cached,
 		}
 	} else if filter.Project != nil && filter.ID == nil && filter.Fingerprint == nil && filter.Public == nil && filter.Cached == nil && filter.AutoUpdate == nil {
-		sqlStmt = Stmt(tx, imageObjectsByProject)
+		sqlStmt, err = Stmt(tx, imageObjectsByProject)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to get \"imageObjectsByProject\" prepared statement: %w", err)
+		}
+
 		args = []any{
 			filter.Project,
 		}
 	} else if filter.ID != nil && filter.Project == nil && filter.Fingerprint == nil && filter.Public == nil && filter.Cached == nil && filter.AutoUpdate == nil {
-		sqlStmt = Stmt(tx, imageObjectsByID)
+		sqlStmt, err = Stmt(tx, imageObjectsByID)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to get \"imageObjectsByID\" prepared statement: %w", err)
+		}
+
 		args = []any{
 			filter.ID,
 		}
 	} else if filter.Fingerprint != nil && filter.ID == nil && filter.Project == nil && filter.Public == nil && filter.Cached == nil && filter.AutoUpdate == nil {
-		sqlStmt = Stmt(tx, imageObjectsByFingerprint)
+		sqlStmt, err = Stmt(tx, imageObjectsByFingerprint)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to get \"imageObjectsByFingerprint\" prepared statement: %w", err)
+		}
+
 		args = []any{
 			filter.Fingerprint,
 		}
 	} else if filter.Cached != nil && filter.ID == nil && filter.Project == nil && filter.Fingerprint == nil && filter.Public == nil && filter.AutoUpdate == nil {
-		sqlStmt = Stmt(tx, imageObjectsByCached)
+		sqlStmt, err = Stmt(tx, imageObjectsByCached)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to get \"imageObjectsByCached\" prepared statement: %w", err)
+		}
+
 		args = []any{
 			filter.Cached,
 		}
 	} else if filter.AutoUpdate != nil && filter.ID == nil && filter.Project == nil && filter.Fingerprint == nil && filter.Public == nil && filter.Cached == nil {
-		sqlStmt = Stmt(tx, imageObjectsByAutoUpdate)
+		sqlStmt, err = Stmt(tx, imageObjectsByAutoUpdate)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to get \"imageObjectsByAutoUpdate\" prepared statement: %w", err)
+		}
+
 		args = []any{
 			filter.AutoUpdate,
 		}
 	} else if filter.ID == nil && filter.Project == nil && filter.Fingerprint == nil && filter.Public == nil && filter.Cached == nil && filter.AutoUpdate == nil {
-		sqlStmt = Stmt(tx, imageObjects)
+		sqlStmt, err = Stmt(tx, imageObjects)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to get \"imageObjects\" prepared statement: %w", err)
+		}
+
 		args = []any{}
 	} else {
 		return nil, fmt.Errorf("No statement exists for the given Filter")

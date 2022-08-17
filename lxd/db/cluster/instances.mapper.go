@@ -155,7 +155,11 @@ func GetInstances(ctx context.Context, tx *sql.Tx, filter InstanceFilter) ([]Ins
 	var args []any
 
 	if filter.Project != nil && filter.Type != nil && filter.Node != nil && filter.Name != nil && filter.ID == nil {
-		sqlStmt = Stmt(tx, instanceObjectsByProjectAndTypeAndNodeAndName)
+		sqlStmt, err = Stmt(tx, instanceObjectsByProjectAndTypeAndNodeAndName)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to get \"instanceObjectsByProjectAndTypeAndNodeAndName\" prepared statement: %w", err)
+		}
+
 		args = []any{
 			filter.Project,
 			filter.Type,
@@ -163,96 +167,160 @@ func GetInstances(ctx context.Context, tx *sql.Tx, filter InstanceFilter) ([]Ins
 			filter.Name,
 		}
 	} else if filter.Project != nil && filter.Type != nil && filter.Node != nil && filter.ID == nil && filter.Name == nil {
-		sqlStmt = Stmt(tx, instanceObjectsByProjectAndTypeAndNode)
+		sqlStmt, err = Stmt(tx, instanceObjectsByProjectAndTypeAndNode)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to get \"instanceObjectsByProjectAndTypeAndNode\" prepared statement: %w", err)
+		}
+
 		args = []any{
 			filter.Project,
 			filter.Type,
 			filter.Node,
 		}
 	} else if filter.Project != nil && filter.Type != nil && filter.Name != nil && filter.ID == nil && filter.Node == nil {
-		sqlStmt = Stmt(tx, instanceObjectsByProjectAndTypeAndName)
+		sqlStmt, err = Stmt(tx, instanceObjectsByProjectAndTypeAndName)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to get \"instanceObjectsByProjectAndTypeAndName\" prepared statement: %w", err)
+		}
+
 		args = []any{
 			filter.Project,
 			filter.Type,
 			filter.Name,
 		}
 	} else if filter.Type != nil && filter.Name != nil && filter.Node != nil && filter.ID == nil && filter.Project == nil {
-		sqlStmt = Stmt(tx, instanceObjectsByTypeAndNameAndNode)
+		sqlStmt, err = Stmt(tx, instanceObjectsByTypeAndNameAndNode)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to get \"instanceObjectsByTypeAndNameAndNode\" prepared statement: %w", err)
+		}
+
 		args = []any{
 			filter.Type,
 			filter.Name,
 			filter.Node,
 		}
 	} else if filter.Project != nil && filter.Name != nil && filter.Node != nil && filter.ID == nil && filter.Type == nil {
-		sqlStmt = Stmt(tx, instanceObjectsByProjectAndNameAndNode)
+		sqlStmt, err = Stmt(tx, instanceObjectsByProjectAndNameAndNode)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to get \"instanceObjectsByProjectAndNameAndNode\" prepared statement: %w", err)
+		}
+
 		args = []any{
 			filter.Project,
 			filter.Name,
 			filter.Node,
 		}
 	} else if filter.Project != nil && filter.Type != nil && filter.ID == nil && filter.Name == nil && filter.Node == nil {
-		sqlStmt = Stmt(tx, instanceObjectsByProjectAndType)
+		sqlStmt, err = Stmt(tx, instanceObjectsByProjectAndType)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to get \"instanceObjectsByProjectAndType\" prepared statement: %w", err)
+		}
+
 		args = []any{
 			filter.Project,
 			filter.Type,
 		}
 	} else if filter.Type != nil && filter.Node != nil && filter.ID == nil && filter.Project == nil && filter.Name == nil {
-		sqlStmt = Stmt(tx, instanceObjectsByTypeAndNode)
+		sqlStmt, err = Stmt(tx, instanceObjectsByTypeAndNode)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to get \"instanceObjectsByTypeAndNode\" prepared statement: %w", err)
+		}
+
 		args = []any{
 			filter.Type,
 			filter.Node,
 		}
 	} else if filter.Type != nil && filter.Name != nil && filter.ID == nil && filter.Project == nil && filter.Node == nil {
-		sqlStmt = Stmt(tx, instanceObjectsByTypeAndName)
+		sqlStmt, err = Stmt(tx, instanceObjectsByTypeAndName)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to get \"instanceObjectsByTypeAndName\" prepared statement: %w", err)
+		}
+
 		args = []any{
 			filter.Type,
 			filter.Name,
 		}
 	} else if filter.Project != nil && filter.Node != nil && filter.ID == nil && filter.Name == nil && filter.Type == nil {
-		sqlStmt = Stmt(tx, instanceObjectsByProjectAndNode)
+		sqlStmt, err = Stmt(tx, instanceObjectsByProjectAndNode)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to get \"instanceObjectsByProjectAndNode\" prepared statement: %w", err)
+		}
+
 		args = []any{
 			filter.Project,
 			filter.Node,
 		}
 	} else if filter.Project != nil && filter.Name != nil && filter.ID == nil && filter.Node == nil && filter.Type == nil {
-		sqlStmt = Stmt(tx, instanceObjectsByProjectAndName)
+		sqlStmt, err = Stmt(tx, instanceObjectsByProjectAndName)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to get \"instanceObjectsByProjectAndName\" prepared statement: %w", err)
+		}
+
 		args = []any{
 			filter.Project,
 			filter.Name,
 		}
 	} else if filter.Node != nil && filter.Name != nil && filter.ID == nil && filter.Project == nil && filter.Type == nil {
-		sqlStmt = Stmt(tx, instanceObjectsByNodeAndName)
+		sqlStmt, err = Stmt(tx, instanceObjectsByNodeAndName)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to get \"instanceObjectsByNodeAndName\" prepared statement: %w", err)
+		}
+
 		args = []any{
 			filter.Node,
 			filter.Name,
 		}
 	} else if filter.Type != nil && filter.ID == nil && filter.Project == nil && filter.Name == nil && filter.Node == nil {
-		sqlStmt = Stmt(tx, instanceObjectsByType)
+		sqlStmt, err = Stmt(tx, instanceObjectsByType)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to get \"instanceObjectsByType\" prepared statement: %w", err)
+		}
+
 		args = []any{
 			filter.Type,
 		}
 	} else if filter.Project != nil && filter.ID == nil && filter.Name == nil && filter.Node == nil && filter.Type == nil {
-		sqlStmt = Stmt(tx, instanceObjectsByProject)
+		sqlStmt, err = Stmt(tx, instanceObjectsByProject)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to get \"instanceObjectsByProject\" prepared statement: %w", err)
+		}
+
 		args = []any{
 			filter.Project,
 		}
 	} else if filter.Node != nil && filter.ID == nil && filter.Project == nil && filter.Name == nil && filter.Type == nil {
-		sqlStmt = Stmt(tx, instanceObjectsByNode)
+		sqlStmt, err = Stmt(tx, instanceObjectsByNode)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to get \"instanceObjectsByNode\" prepared statement: %w", err)
+		}
+
 		args = []any{
 			filter.Node,
 		}
 	} else if filter.Name != nil && filter.ID == nil && filter.Project == nil && filter.Node == nil && filter.Type == nil {
-		sqlStmt = Stmt(tx, instanceObjectsByName)
+		sqlStmt, err = Stmt(tx, instanceObjectsByName)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to get \"instanceObjectsByName\" prepared statement: %w", err)
+		}
+
 		args = []any{
 			filter.Name,
 		}
 	} else if filter.ID != nil && filter.Project == nil && filter.Name == nil && filter.Node == nil && filter.Type == nil {
-		sqlStmt = Stmt(tx, instanceObjectsByID)
+		sqlStmt, err = Stmt(tx, instanceObjectsByID)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to get \"instanceObjectsByID\" prepared statement: %w", err)
+		}
+
 		args = []any{
 			filter.ID,
 		}
 	} else if filter.ID == nil && filter.Project == nil && filter.Name == nil && filter.Node == nil && filter.Type == nil {
-		sqlStmt = Stmt(tx, instanceObjects)
+		sqlStmt, err = Stmt(tx, instanceObjects)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to get \"instanceObjects\" prepared statement: %w", err)
+		}
+
 		args = []any{}
 	} else {
 		return nil, fmt.Errorf("No statement exists for the given Filter")
@@ -342,7 +410,11 @@ func GetInstance(ctx context.Context, tx *sql.Tx, project string, name string) (
 // GetInstanceID return the ID of the instance with the given key.
 // generator: instance ID
 func GetInstanceID(ctx context.Context, tx *sql.Tx, project string, name string) (int64, error) {
-	stmt := Stmt(tx, instanceID)
+	stmt, err := Stmt(tx, instanceID)
+	if err != nil {
+		return -1, fmt.Errorf("Failed to get \"instanceID\" prepared statement: %w", err)
+	}
+
 	rows, err := stmt.Query(project, name)
 	if err != nil {
 		return -1, fmt.Errorf("Failed to get \"instances\" ID: %w", err)
@@ -417,7 +489,10 @@ func CreateInstance(ctx context.Context, tx *sql.Tx, object Instance) (int64, er
 	args[10] = object.ExpiryDate
 
 	// Prepared statement to use.
-	stmt := Stmt(tx, instanceCreate)
+	stmt, err := Stmt(tx, instanceCreate)
+	if err != nil {
+		return -1, fmt.Errorf("Failed to get \"instanceCreate\" prepared statement: %w", err)
+	}
 
 	// Execute the statement.
 	result, err := stmt.Exec(args...)
@@ -473,7 +548,11 @@ func CreateInstanceConfig(ctx context.Context, tx *sql.Tx, instanceID int64, con
 // RenameInstance renames the instance matching the given key parameters.
 // generator: instance Rename
 func RenameInstance(ctx context.Context, tx *sql.Tx, project string, name string, to string) error {
-	stmt := Stmt(tx, instanceRename)
+	stmt, err := Stmt(tx, instanceRename)
+	if err != nil {
+		return fmt.Errorf("Failed to get \"instanceRename\" prepared statement: %w", err)
+	}
+
 	result, err := stmt.Exec(to, project, name)
 	if err != nil {
 		return fmt.Errorf("Rename Instance failed: %w", err)
@@ -494,7 +573,11 @@ func RenameInstance(ctx context.Context, tx *sql.Tx, project string, name string
 // DeleteInstance deletes the instance matching the given key parameters.
 // generator: instance DeleteOne-by-Project-and-Name
 func DeleteInstance(ctx context.Context, tx *sql.Tx, project string, name string) error {
-	stmt := Stmt(tx, instanceDeleteByProjectAndName)
+	stmt, err := Stmt(tx, instanceDeleteByProjectAndName)
+	if err != nil {
+		return fmt.Errorf("Failed to get \"instanceDeleteByProjectAndName\" prepared statement: %w", err)
+	}
+
 	result, err := stmt.Exec(project, name)
 	if err != nil {
 		return fmt.Errorf("Delete \"instances\": %w", err)
@@ -522,7 +605,11 @@ func UpdateInstance(ctx context.Context, tx *sql.Tx, project string, name string
 		return err
 	}
 
-	stmt := Stmt(tx, instanceUpdate)
+	stmt, err := Stmt(tx, instanceUpdate)
+	if err != nil {
+		return fmt.Errorf("Failed to get \"instanceUpdate\" prepared statement: %w", err)
+	}
+
 	result, err := stmt.Exec(object.Project, object.Name, object.Node, object.Type, object.Architecture, object.Ephemeral, object.CreationDate, object.Stateful, object.LastUseDate, object.Description, object.ExpiryDate, id)
 	if err != nil {
 		return fmt.Errorf("Update \"instances\" entry failed: %w", err)

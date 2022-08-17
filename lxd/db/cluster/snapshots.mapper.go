@@ -71,25 +71,41 @@ func GetInstanceSnapshots(ctx context.Context, tx *sql.Tx, filter InstanceSnapsh
 	var args []any
 
 	if filter.Project != nil && filter.Instance != nil && filter.Name != nil && filter.ID == nil {
-		sqlStmt = Stmt(tx, instanceSnapshotObjectsByProjectAndInstanceAndName)
+		sqlStmt, err = Stmt(tx, instanceSnapshotObjectsByProjectAndInstanceAndName)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to get \"instanceSnapshotObjectsByProjectAndInstanceAndName\" prepared statement: %w", err)
+		}
+
 		args = []any{
 			filter.Project,
 			filter.Instance,
 			filter.Name,
 		}
 	} else if filter.Project != nil && filter.Instance != nil && filter.ID == nil && filter.Name == nil {
-		sqlStmt = Stmt(tx, instanceSnapshotObjectsByProjectAndInstance)
+		sqlStmt, err = Stmt(tx, instanceSnapshotObjectsByProjectAndInstance)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to get \"instanceSnapshotObjectsByProjectAndInstance\" prepared statement: %w", err)
+		}
+
 		args = []any{
 			filter.Project,
 			filter.Instance,
 		}
 	} else if filter.ID != nil && filter.Project == nil && filter.Instance == nil && filter.Name == nil {
-		sqlStmt = Stmt(tx, instanceSnapshotObjectsByID)
+		sqlStmt, err = Stmt(tx, instanceSnapshotObjectsByID)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to get \"instanceSnapshotObjectsByID\" prepared statement: %w", err)
+		}
+
 		args = []any{
 			filter.ID,
 		}
 	} else if filter.ID == nil && filter.Project == nil && filter.Instance == nil && filter.Name == nil {
-		sqlStmt = Stmt(tx, instanceSnapshotObjects)
+		sqlStmt, err = Stmt(tx, instanceSnapshotObjects)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to get \"instanceSnapshotObjects\" prepared statement: %w", err)
+		}
+
 		args = []any{}
 	} else {
 		return nil, fmt.Errorf("No statement exists for the given Filter")
@@ -180,7 +196,11 @@ func GetInstanceSnapshot(ctx context.Context, tx *sql.Tx, project string, instan
 // GetInstanceSnapshotID return the ID of the instance_snapshot with the given key.
 // generator: instance_snapshot ID
 func GetInstanceSnapshotID(ctx context.Context, tx *sql.Tx, project string, instance string, name string) (int64, error) {
-	stmt := Stmt(tx, instanceSnapshotID)
+	stmt, err := Stmt(tx, instanceSnapshotID)
+	if err != nil {
+		return -1, fmt.Errorf("Failed to get \"instanceSnapshotID\" prepared statement: %w", err)
+	}
+
 	rows, err := stmt.Query(project, instance, name)
 	if err != nil {
 		return -1, fmt.Errorf("Failed to get \"instances_snapshots\" ID: %w", err)
@@ -251,7 +271,10 @@ func CreateInstanceSnapshot(ctx context.Context, tx *sql.Tx, object InstanceSnap
 	args[6] = object.ExpiryDate
 
 	// Prepared statement to use.
-	stmt := Stmt(tx, instanceSnapshotCreate)
+	stmt, err := Stmt(tx, instanceSnapshotCreate)
+	if err != nil {
+		return -1, fmt.Errorf("Failed to get \"instanceSnapshotCreate\" prepared statement: %w", err)
+	}
 
 	// Execute the statement.
 	result, err := stmt.Exec(args...)
@@ -307,7 +330,11 @@ func CreateInstanceSnapshotConfig(ctx context.Context, tx *sql.Tx, instanceSnaps
 // RenameInstanceSnapshot renames the instance_snapshot matching the given key parameters.
 // generator: instance_snapshot Rename
 func RenameInstanceSnapshot(ctx context.Context, tx *sql.Tx, project string, instance string, name string, to string) error {
-	stmt := Stmt(tx, instanceSnapshotRename)
+	stmt, err := Stmt(tx, instanceSnapshotRename)
+	if err != nil {
+		return fmt.Errorf("Failed to get \"instanceSnapshotRename\" prepared statement: %w", err)
+	}
+
 	result, err := stmt.Exec(to, project, instance, name)
 	if err != nil {
 		return fmt.Errorf("Rename InstanceSnapshot failed: %w", err)
@@ -328,7 +355,11 @@ func RenameInstanceSnapshot(ctx context.Context, tx *sql.Tx, project string, ins
 // DeleteInstanceSnapshot deletes the instance_snapshot matching the given key parameters.
 // generator: instance_snapshot DeleteOne-by-Project-and-Instance-and-Name
 func DeleteInstanceSnapshot(ctx context.Context, tx *sql.Tx, project string, instance string, name string) error {
-	stmt := Stmt(tx, instanceSnapshotDeleteByProjectAndInstanceAndName)
+	stmt, err := Stmt(tx, instanceSnapshotDeleteByProjectAndInstanceAndName)
+	if err != nil {
+		return fmt.Errorf("Failed to get \"instanceSnapshotDeleteByProjectAndInstanceAndName\" prepared statement: %w", err)
+	}
+
 	result, err := stmt.Exec(project, instance, name)
 	if err != nil {
 		return fmt.Errorf("Delete \"instances_snapshots\": %w", err)
