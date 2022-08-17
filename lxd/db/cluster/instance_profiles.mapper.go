@@ -48,13 +48,16 @@ func GetProfileInstances(ctx context.Context, tx *sql.Tx, profileID int) ([]Inst
 	args := []any{profileID}
 
 	// Dest function for scanning a row.
-	dest := func(i int) []any {
-		objects = append(objects, InstanceProfile{})
-		return []any{
-			&objects[i].InstanceID,
-			&objects[i].ProfileID,
-			&objects[i].ApplyOrder,
+	dest := func(scan func(dest ...any) error) error {
+		i := InstanceProfile{}
+		err := scan(&i.InstanceID, &i.ProfileID, &i.ApplyOrder)
+		if err != nil {
+			return err
 		}
+
+		objects = append(objects, i)
+
+		return nil
 	}
 
 	// Select.
@@ -88,13 +91,16 @@ func GetInstanceProfiles(ctx context.Context, tx *sql.Tx, instanceID int) ([]Pro
 	args := []any{instanceID}
 
 	// Dest function for scanning a row.
-	dest := func(i int) []any {
-		objects = append(objects, InstanceProfile{})
-		return []any{
-			&objects[i].InstanceID,
-			&objects[i].ProfileID,
-			&objects[i].ApplyOrder,
+	dest := func(scan func(dest ...any) error) error {
+		i := InstanceProfile{}
+		err := scan(&i.InstanceID, &i.ProfileID, &i.ApplyOrder)
+		if err != nil {
+			return err
 		}
+
+		objects = append(objects, i)
+
+		return nil
 	}
 
 	// Select.

@@ -88,13 +88,16 @@ func GetProjects(ctx context.Context, tx *sql.Tx, filter ProjectFilter) ([]Proje
 	}
 
 	// Dest function for scanning a row.
-	dest := func(i int) []any {
-		objects = append(objects, Project{})
-		return []any{
-			&objects[i].ID,
-			&objects[i].Description,
-			&objects[i].Name,
+	dest := func(scan func(dest ...any) error) error {
+		p := Project{}
+		err := scan(&p.ID, &p.Description, &p.Name)
+		if err != nil {
+			return err
 		}
+
+		objects = append(objects, p)
+
+		return nil
 	}
 
 	// Select.

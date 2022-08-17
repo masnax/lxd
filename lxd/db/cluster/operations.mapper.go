@@ -88,16 +88,16 @@ func GetOperations(ctx context.Context, tx *sql.Tx, filter OperationFilter) ([]O
 	}
 
 	// Dest function for scanning a row.
-	dest := func(i int) []any {
-		objects = append(objects, Operation{})
-		return []any{
-			&objects[i].ID,
-			&objects[i].UUID,
-			&objects[i].NodeAddress,
-			&objects[i].ProjectID,
-			&objects[i].NodeID,
-			&objects[i].Type,
+	dest := func(scan func(dest ...any) error) error {
+		o := Operation{}
+		err := scan(&o.ID, &o.UUID, &o.NodeAddress, &o.ProjectID, &o.NodeID, &o.Type)
+		if err != nil {
+			return err
 		}
+
+		objects = append(objects, o)
+
+		return nil
 	}
 
 	// Select.

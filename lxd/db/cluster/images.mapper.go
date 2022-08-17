@@ -121,24 +121,16 @@ func GetImages(ctx context.Context, tx *sql.Tx, filter ImageFilter) ([]Image, er
 	}
 
 	// Dest function for scanning a row.
-	dest := func(i int) []any {
-		objects = append(objects, Image{})
-		return []any{
-			&objects[i].ID,
-			&objects[i].Project,
-			&objects[i].Fingerprint,
-			&objects[i].Type,
-			&objects[i].Filename,
-			&objects[i].Size,
-			&objects[i].Public,
-			&objects[i].Architecture,
-			&objects[i].CreationDate,
-			&objects[i].ExpiryDate,
-			&objects[i].UploadDate,
-			&objects[i].Cached,
-			&objects[i].LastUseDate,
-			&objects[i].AutoUpdate,
+	dest := func(scan func(dest ...any) error) error {
+		i := Image{}
+		err := scan(&i.ID, &i.Project, &i.Fingerprint, &i.Type, &i.Filename, &i.Size, &i.Public, &i.Architecture, &i.CreationDate, &i.ExpiryDate, &i.UploadDate, &i.Cached, &i.LastUseDate, &i.AutoUpdate)
+		if err != nil {
+			return err
 		}
+
+		objects = append(objects, i)
+
+		return nil
 	}
 
 	// Select.

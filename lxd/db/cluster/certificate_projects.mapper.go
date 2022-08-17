@@ -42,12 +42,16 @@ func GetCertificateProjects(ctx context.Context, tx *sql.Tx, certificateID int) 
 	args := []any{certificateID}
 
 	// Dest function for scanning a row.
-	dest := func(i int) []any {
-		objects = append(objects, CertificateProject{})
-		return []any{
-			&objects[i].CertificateID,
-			&objects[i].ProjectID,
+	dest := func(scan func(dest ...any) error) error {
+		c := CertificateProject{}
+		err := scan(&c.CertificateID, &c.ProjectID)
+		if err != nil {
+			return err
 		}
+
+		objects = append(objects, c)
+
+		return nil
 	}
 
 	// Select.

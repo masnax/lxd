@@ -160,15 +160,16 @@ func GetProfiles(ctx context.Context, tx *sql.Tx, filter ProfileFilter) ([]Profi
 	}
 
 	// Dest function for scanning a row.
-	dest := func(i int) []any {
-		objects = append(objects, Profile{})
-		return []any{
-			&objects[i].ID,
-			&objects[i].ProjectID,
-			&objects[i].Project,
-			&objects[i].Name,
-			&objects[i].Description,
+	dest := func(scan func(dest ...any) error) error {
+		p := Profile{}
+		err := scan(&p.ID, &p.ProjectID, &p.Project, &p.Name, &p.Description)
+		if err != nil {
+			return err
 		}
+
+		objects = append(objects, p)
+
+		return nil
 	}
 
 	// Select.

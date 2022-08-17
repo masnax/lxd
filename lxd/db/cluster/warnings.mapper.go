@@ -128,23 +128,16 @@ func GetWarnings(ctx context.Context, tx *sql.Tx, filter WarningFilter) ([]Warni
 	}
 
 	// Dest function for scanning a row.
-	dest := func(i int) []any {
-		objects = append(objects, Warning{})
-		return []any{
-			&objects[i].ID,
-			&objects[i].Node,
-			&objects[i].Project,
-			&objects[i].EntityTypeCode,
-			&objects[i].EntityID,
-			&objects[i].UUID,
-			&objects[i].TypeCode,
-			&objects[i].Status,
-			&objects[i].FirstSeenDate,
-			&objects[i].LastSeenDate,
-			&objects[i].UpdatedDate,
-			&objects[i].LastMessage,
-			&objects[i].Count,
+	dest := func(scan func(dest ...any) error) error {
+		w := Warning{}
+		err := scan(&w.ID, &w.Node, &w.Project, &w.EntityTypeCode, &w.EntityID, &w.UUID, &w.TypeCode, &w.Status, &w.FirstSeenDate, &w.LastSeenDate, &w.UpdatedDate, &w.LastMessage, &w.Count)
+		if err != nil {
+			return err
 		}
+
+		objects = append(objects, w)
+
+		return nil
 	}
 
 	// Select.

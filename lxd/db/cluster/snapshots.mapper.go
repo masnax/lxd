@@ -96,18 +96,16 @@ func GetInstanceSnapshots(ctx context.Context, tx *sql.Tx, filter InstanceSnapsh
 	}
 
 	// Dest function for scanning a row.
-	dest := func(i int) []any {
-		objects = append(objects, InstanceSnapshot{})
-		return []any{
-			&objects[i].ID,
-			&objects[i].Project,
-			&objects[i].Instance,
-			&objects[i].Name,
-			&objects[i].CreationDate,
-			&objects[i].Stateful,
-			&objects[i].Description,
-			&objects[i].ExpiryDate,
+	dest := func(scan func(dest ...any) error) error {
+		i := InstanceSnapshot{}
+		err := scan(&i.ID, &i.Project, &i.Instance, &i.Name, &i.CreationDate, &i.Stateful, &i.Description, &i.ExpiryDate)
+		if err != nil {
+			return err
 		}
+
+		objects = append(objects, i)
+
+		return nil
 	}
 
 	// Select.

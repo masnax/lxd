@@ -88,16 +88,16 @@ func GetCertificates(ctx context.Context, tx *sql.Tx, filter CertificateFilter) 
 	}
 
 	// Dest function for scanning a row.
-	dest := func(i int) []any {
-		objects = append(objects, Certificate{})
-		return []any{
-			&objects[i].ID,
-			&objects[i].Fingerprint,
-			&objects[i].Type,
-			&objects[i].Name,
-			&objects[i].Certificate,
-			&objects[i].Restricted,
+	dest := func(scan func(dest ...any) error) error {
+		c := Certificate{}
+		err := scan(&c.ID, &c.Fingerprint, &c.Type, &c.Name, &c.Certificate, &c.Restricted)
+		if err != nil {
+			return err
 		}
+
+		objects = append(objects, c)
+
+		return nil
 	}
 
 	// Select.

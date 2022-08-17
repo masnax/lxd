@@ -259,22 +259,16 @@ func GetInstances(ctx context.Context, tx *sql.Tx, filter InstanceFilter) ([]Ins
 	}
 
 	// Dest function for scanning a row.
-	dest := func(i int) []any {
-		objects = append(objects, Instance{})
-		return []any{
-			&objects[i].ID,
-			&objects[i].Project,
-			&objects[i].Name,
-			&objects[i].Node,
-			&objects[i].Type,
-			&objects[i].Architecture,
-			&objects[i].Ephemeral,
-			&objects[i].CreationDate,
-			&objects[i].Stateful,
-			&objects[i].LastUseDate,
-			&objects[i].Description,
-			&objects[i].ExpiryDate,
+	dest := func(scan func(dest ...any) error) error {
+		i := Instance{}
+		err := scan(&i.ID, &i.Project, &i.Name, &i.Node, &i.Type, &i.Architecture, &i.Ephemeral, &i.CreationDate, &i.Stateful, &i.LastUseDate, &i.Description, &i.ExpiryDate)
+		if err != nil {
+			return err
 		}
+
+		objects = append(objects, i)
+
+		return nil
 	}
 
 	// Select.
