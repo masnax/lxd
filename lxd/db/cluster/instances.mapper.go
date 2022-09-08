@@ -7,6 +7,7 @@ package cluster
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -621,10 +622,10 @@ func GetInstances(ctx context.Context, tx *sql.Tx, filters ...InstanceFilter) ([
 
 	// Select.
 	if sqlStmt != nil {
-		err = query.SelectObjects(sqlStmt, dest, args...)
+		err = query.SelectObjects(ctx, sqlStmt, dest, args...)
 	} else {
 		queryStr := strings.Join(queryParts[:], "ORDER BY")
-		err = query.Scan(tx, queryStr, dest, args...)
+		err = query.Scan(ctx, tx, queryStr, dest, args...)
 	}
 
 	if err != nil {
@@ -701,31 +702,20 @@ func GetInstanceID(ctx context.Context, tx *sql.Tx, project string, name string)
 		return -1, fmt.Errorf("Failed to get \"instanceID\" prepared statement: %w", err)
 	}
 
-	rows, err := stmt.Query(project, name)
+	row := stmt.QueryRowContext(ctx, project, name)
+	err = row.Err()
 	if err != nil {
 		return -1, fmt.Errorf("Failed to get \"instances\" ID: %w", err)
 	}
 
-	defer func() { _ = rows.Close() }()
-
-	// Ensure we read one and only one row.
-	if !rows.Next() {
+	var id int64
+	err = row.Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
 		return -1, api.StatusErrorf(http.StatusNotFound, "Instance not found")
 	}
 
-	var id int64
-	err = rows.Scan(&id)
 	if err != nil {
 		return -1, fmt.Errorf("Failed to scan ID: %w", err)
-	}
-
-	if rows.Next() {
-		return -1, fmt.Errorf("More than one row returned")
-	}
-
-	err = rows.Err()
-	if err != nil {
-		return -1, fmt.Errorf("Result set failure: %w", err)
 	}
 
 	return id, nil
