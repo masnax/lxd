@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"net/url"
 	"strings"
 )
@@ -13,6 +14,53 @@ type URL struct {
 // NewURL creates a new URL.
 func NewURL() *URL {
 	return &URL{}
+}
+
+// MarshalJSON implements json.Marshaler for the URL type.
+func (u URL) MarshalJSON() ([]byte, error) {
+	return json.Marshal(u.String())
+}
+
+// MarshalYAML implements yaml.Marshaler for the URL type. Note that for yaml we just need to return a yaml
+// marshallable type (if we return []byte as in the json implementation it is written as an int array).
+func (u URL) MarshalYAML() (any, error) {
+	return u.String(), nil
+}
+
+// UnmarshalJSON implements json.Unmarshaler for URL.
+func (u *URL) UnmarshalJSON(b []byte) error {
+	var urlStr string
+	err := json.Unmarshal(b, &urlStr)
+	if err != nil {
+		return err
+	}
+
+	url, err := url.Parse(urlStr)
+	if err != nil {
+		return err
+	}
+
+	*u = URL{URL: *url}
+
+	return nil
+}
+
+// UnmarshalYAML implements yaml.Unmarshaler for URL.
+func (u *URL) UnmarshalYAML(unmarshal func(v any) error) error {
+	var urlStr string
+	err := unmarshal(&urlStr)
+	if err != nil {
+		return err
+	}
+
+	url, err := url.Parse(urlStr)
+	if err != nil {
+		return err
+	}
+
+	*u = URL{URL: *url}
+
+	return nil
 }
 
 // Scheme sets the scheme of the URL.
