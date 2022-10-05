@@ -77,6 +77,12 @@ func (m *Method) Generate(buf *file.Buffer) error {
 			return m.create(buf, false)
 		case "Update":
 			return m.update(buf)
+		case "DeleteOne":
+			if mapping.Type == AssociationTable {
+				return m.delete(buf, true)
+			}
+
+			return fmt.Errorf("Unknown method kind '%s'", m.kind)
 		case "DeleteMany":
 			return m.delete(buf, false)
 		default:
@@ -1097,17 +1103,7 @@ func (m *Method) delete(buf *file.Buffer, deleteOne bool) error {
 	}
 
 	defer m.end(buf)
-	if mapping.Type == AssociationTable {
-		if m.db == "" {
-			buf.L("stmt, err := Stmt(tx, %s)", stmtCodeVar(m.entity, "delete", m.config["struct"]+"ID"))
-		} else {
-			buf.L("stmt, err := %s.Stmt(tx, %s)", m.db, stmtCodeVar(m.entity, "delete", m.config["struct"]+"ID"))
-		}
-
-		m.ifErrNotNil(buf, true, fmt.Sprintf(`fmt.Errorf("Failed to get \"%s\" prepared statement: %%w", err)`, stmtCodeVar(m.entity, "delete", m.config["struct"]+"ID")))
-		buf.L("result, err := stmt.Exec(int(%sID))", lex.Minuscule(m.config["struct"]))
-		m.ifErrNotNil(buf, true, fmt.Sprintf(`fmt.Errorf("Delete \"%s\" entry failed: %%w", err)`, entityTable(m.entity, m.config["table"])))
-	} else if mapping.Type == ReferenceTable || mapping.Type == MapTable {
+	if mapping.Type == ReferenceTable || mapping.Type == MapTable {
 		stmtVar := stmtCodeVar(m.entity, "delete")
 		stmtLocal := stmtVar + "Local"
 		buf.L("%s := strings.Replace(%s, \"%%s_id\", fmt.Sprintf(\"%%s_id\", parent), -1)", stmtLocal, stmtVar)
@@ -1186,7 +1182,11 @@ func (m *Method) signature(buf *file.Buffer, isInterface bool) error {
 			rets = "error"
 		case "DeleteMany":
 			comment = fmt.Sprintf("deletes the %s matching the given key parameters.", m.entity)
-			args += fmt.Sprintf("%sID int", lex.Minuscule(m.config["struct"]))
+			args += mapping.FieldArgs(mapping.ActiveFilters(m.kind))
+			rets = "error"
+		case "DeleteOne":
+			comment = fmt.Sprintf("deletes the %s matching the given key parameters.", m.entity)
+			args += mapping.FieldArgs(mapping.ActiveFilters(m.kind))
 			rets = "error"
 		default:
 			return fmt.Errorf("Unknown method kind '%s'", m.kind)
@@ -1378,6 +1378,8 @@ func (m *Method) begin(buf *file.Buffer, comment string, args string, rets strin
 			name = fmt.Sprintf("Create%s%s", parent, lex.Plural(ref))
 		case "Update":
 			name = fmt.Sprintf("Update%s%s", parent, lex.Plural(ref))
+		case "DeleteOne":
+			name = fmt.Sprintf("Delete%s", entity)
 		case "DeleteMany":
 			name = fmt.Sprintf("Delete%s%s", parent, lex.Plural(ref))
 		}
