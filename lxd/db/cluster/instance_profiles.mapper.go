@@ -167,16 +167,16 @@ func CreateInstanceProfiles(ctx context.Context, tx *sql.Tx, objects []InstanceP
 }
 
 // DeleteInstanceProfiles deletes the instance_profile matching the given key parameters.
-// generator: instance_profile DeleteMany
+// generator: instance_profile DeleteMany-by-InstanceID
 func DeleteInstanceProfiles(ctx context.Context, tx *sql.Tx, instanceID int) error {
 	stmt, err := Stmt(tx, instanceProfileDeleteByInstanceID)
 	if err != nil {
 		return fmt.Errorf("Failed to get \"instanceProfileDeleteByInstanceID\" prepared statement: %w", err)
 	}
 
-	result, err := stmt.Exec(int(instanceID))
+	result, err := stmt.Exec(instanceID)
 	if err != nil {
-		return fmt.Errorf("Delete \"instances_profiles\" entry failed: %w", err)
+		return fmt.Errorf("Delete \"instances_profiles\": %w", err)
 	}
 
 	_, err = result.RowsAffected()

@@ -85,16 +85,16 @@ func GetCertificateProjects(ctx context.Context, tx *sql.Tx, certificateID int) 
 }
 
 // DeleteCertificateProjects deletes the certificate_project matching the given key parameters.
-// generator: certificate_project DeleteMany
+// generator: certificate_project DeleteMany-by-CertificateID
 func DeleteCertificateProjects(ctx context.Context, tx *sql.Tx, certificateID int) error {
 	stmt, err := Stmt(tx, certificateProjectDeleteByCertificateID)
 	if err != nil {
 		return fmt.Errorf("Failed to get \"certificateProjectDeleteByCertificateID\" prepared statement: %w", err)
 	}
 
-	result, err := stmt.Exec(int(certificateID))
+	result, err := stmt.Exec(certificateID)
 	if err != nil {
-		return fmt.Errorf("Delete \"certificates_projects\" entry failed: %w", err)
+		return fmt.Errorf("Delete \"certificates_projects\": %w", err)
 	}
 
 	_, err = result.RowsAffected()

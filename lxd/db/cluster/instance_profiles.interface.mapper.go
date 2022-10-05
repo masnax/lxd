@@ -22,6 +22,6 @@ type InstanceProfileGenerated interface {
 	CreateInstanceProfiles(ctx context.Context, tx *sql.Tx, objects []InstanceProfile) error
 
 	// DeleteInstanceProfiles deletes the instance_profile matching the given key parameters.
-	// generator: instance_profile DeleteMany
+	// generator: instance_profile DeleteMany-by-InstanceID
 	DeleteInstanceProfiles(ctx context.Context, tx *sql.Tx, instanceID int) error
 }

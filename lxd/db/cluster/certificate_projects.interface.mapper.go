@@ -14,7 +14,7 @@ type CertificateProjectGenerated interface {
 	GetCertificateProjects(ctx context.Context, tx *sql.Tx, certificateID int) ([]Project, error)
 
 	// DeleteCertificateProjects deletes the certificate_project matching the given key parameters.
-	// generator: certificate_project DeleteMany
+	// generator: certificate_project DeleteMany-by-CertificateID
 	DeleteCertificateProjects(ctx context.Context, tx *sql.Tx, certificateID int) error
 
 	// CreateCertificateProjects adds a new certificate_project to the database.
