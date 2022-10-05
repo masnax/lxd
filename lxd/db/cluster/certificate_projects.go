@@ -13,7 +13,7 @@ package cluster
 //go:generate mapper stmt -e certificate_project delete-by-CertificateID
 //
 //go:generate mapper method -i -e certificate_project GetMany struct=Certificate
-//go:generate mapper method -i -e certificate_project DeleteMany struct=Certificate
+//go:generate mapper method -i -e certificate_project DeleteMany-by-CertificateID
 //go:generate mapper method -i -e certificate_project Create struct=Certificate
 //go:generate mapper method -i -e certificate_project Update struct=Certificate
 
