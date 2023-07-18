@@ -242,17 +242,19 @@ cluster:
   cluster_password: ${secret}
   member_config:
 EOF
-    # Declare the pool only if the driver is not ceph, because
-    # the ceph pool doesn't need to be created on the joining
-    # node (it's shared with the bootstrap one).
-    if [ "${driver}" != "ceph" ]; then
-      cat >> "${LXD_DIR}/preseed.yaml" <<EOF
+
+    pool_source=""
+    if [ "${driver}" == "ceph" ]; then
+      pool_source="lxdtest-$(basename \"${TEST_DIR}\")"
+    fi
+
+    cat >> "${LXD_DIR}/preseed.yaml" <<EOF
   - entity: storage-pool
     name: data
     key: source
-    value: ""
+    value: "${pool_source}"
 EOF
-      if [ "${driver}" = "zfs" ]; then
+    if [ "${driver}" = "zfs" ]; then
         cat >> "${LXD_DIR}/preseed.yaml" <<EOF
   - entity: storage-pool
     name: data
@@ -263,8 +265,8 @@ EOF
     key: size
     value: 1GiB
 EOF
-      fi
-      if [ "${driver}" = "lvm" ]; then
+    fi
+    if [ "${driver}" = "lvm" ]; then
         cat >> "${LXD_DIR}/preseed.yaml" <<EOF
   - entity: storage-pool
     name: data
@@ -275,15 +277,14 @@ EOF
     key: size
     value: 1GiB
 EOF
-      fi
-      if [ "${driver}" = "btrfs" ]; then
+    fi
+    if [ "${driver}" = "btrfs" ]; then
         cat >> "${LXD_DIR}/preseed.yaml" <<EOF
   - entity: storage-pool
     name: data
     key: size
     value: 1GiB
 EOF
-      fi
     fi
 
     lxd init --preseed < "${LXD_DIR}/preseed.yaml"
