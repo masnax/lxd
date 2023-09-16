@@ -108,14 +108,15 @@ func (op *operation) Wait() error {
 	return op.WaitContext(context.Background())
 }
 
-// WaitContext lets you wait until the operation reaches a final state with context.Context.
-func (op *operation) WaitContext(ctx context.Context) error {
+func (op *operation) Wait2() error {
+	ctx := context.Background()
+
 	op.handlerLock.Lock()
 	// Check if not done already
 	if op.StatusCode.IsFinal() {
 		if op.Err != "" {
 			op.handlerLock.Unlock()
-			return errors.New(op.Err)
+			return fmt.Errorf("OP 1: %v", op.Err)
 		}
 
 		op.handlerLock.Unlock()
@@ -127,18 +128,54 @@ func (op *operation) WaitContext(ctx context.Context) error {
 	// Make sure we have a listener setup
 	err := op.setupListener()
 	if err != nil {
-		return err
+		return fmt.Errorf("OP 2: %w", err)
 	}
 
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		return fmt.Errorf("OP 4: %w", ctx.Err())
 	case <-op.chActive:
 	}
 
 	// We're done, parse the result
 	if op.Err != "" {
-		return errors.New(op.Err)
+		return fmt.Errorf("OP 3: %v", op.Err)
+	}
+
+	return nil
+}
+
+// WaitContext lets you wait until the operation reaches a final state with context.Context.
+func (op *operation) WaitContext(ctx context.Context) error {
+	op.handlerLock.Lock()
+	// Check if not done already
+	if op.StatusCode.IsFinal() {
+		if op.Err != "" {
+			op.handlerLock.Unlock()
+			return fmt.Errorf("OP 1: %v", op.Err)
+		}
+
+		op.handlerLock.Unlock()
+		return nil
+	}
+
+	op.handlerLock.Unlock()
+
+	// Make sure we have a listener setup
+	err := op.setupListener()
+	if err != nil {
+		return fmt.Errorf("OP 2: %w", err)
+	}
+
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("OP 4: %w", ctx.Err())
+	case <-op.chActive:
+	}
+
+	// We're done, parse the result
+	if op.Err != "" {
+		return fmt.Errorf("OP 3: %v", op.Err)
 	}
 
 	return nil

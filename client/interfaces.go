@@ -23,6 +23,7 @@ type Operation interface {
 	RemoveHandler(target *EventTarget) (err error)
 	Refresh() (err error)
 	Wait() (err error)
+	Wait2() (err error)
 	WaitContext(ctx context.Context) error
 }
 
