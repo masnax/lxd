@@ -3,7 +3,6 @@ package lxd
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"sync"
 
@@ -200,7 +199,7 @@ func (op *operation) setupListener() error {
 	if op.listener == nil {
 		listener, err := op.r.GetEvents()
 		if err != nil {
-			return err
+			return fmt.Errorf("Listen 1: %w", err)
 		}
 
 		op.listener = listener
@@ -244,7 +243,7 @@ func (op *operation) setupListener() error {
 		close(op.chActive)
 		close(chReady)
 
-		return err
+		return fmt.Errorf("Listen 2: %w", err)
 	}
 
 	// Monitor event listener
@@ -286,7 +285,7 @@ func (op *operation) setupListener() error {
 		close(op.chActive)
 		close(chReady)
 
-		return err
+		return fmt.Errorf("Listen 3: %w", err)
 	}
 
 	// Check if not done already
@@ -297,7 +296,7 @@ func (op *operation) setupListener() error {
 		close(chReady)
 
 		if op.Err != "" {
-			return errors.New(op.Err)
+			return fmt.Errorf("Listen 4: %v", op.Err)
 		}
 
 		return nil
