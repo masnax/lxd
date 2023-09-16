@@ -430,7 +430,7 @@ func (r *ProtocolLXD) rawWebsocket(url string) (*websocket.Conn, error) {
 	// Grab the http transport handler
 	httpTransport, err := r.getUnderlyingHTTPTransport()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("RawWS 1 (%v): %w", url, err)
 	}
 
 	// Setup a new websocket dialer based on it
@@ -453,7 +453,7 @@ func (r *ProtocolLXD) rawWebsocket(url string) (*websocket.Conn, error) {
 			_, _, err = lxdParseResponse(resp)
 		}
 
-		return nil, err
+		return nil, fmt.Errorf("RawWS 2 (%v): %w", url, err)
 	}
 
 	// Set TCP timeout options.

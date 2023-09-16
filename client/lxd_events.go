@@ -54,13 +54,13 @@ func (r *ProtocolLXD) getEvents(allProjects bool) (*EventListener, error) {
 	}
 
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Events 1 (%v): %w", url, err)
 	}
 
 	// Connect websocket and save.
 	wsConn, err := r.websocket(url)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Events 2 (%v): %w", url, err)
 	}
 
 	r.eventConnsLock.Lock()
