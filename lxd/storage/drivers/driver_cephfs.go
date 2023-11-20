@@ -129,9 +129,74 @@ func (d *cephfs) Create() error {
 		fsPath = fields[1]
 	}
 
-	// Check that the filesystem exists.
-	if !d.fsExists(d.config["cephfs.cluster_name"], d.config["cephfs.user.name"], fsName) {
-		return fmt.Errorf("The requested '%v' CEPHFS doesn't exist", fsName)
+	// If the filesystem already exists, disallow keys associated to creating the filesystem.
+	fsExists, err := d.fsExists(d.config["cephfs.cluster_name"], d.config["cephfs.user.name"], fsName)
+	if err != nil {
+		return fmt.Errorf("Failed to check if %q CEPHFS exists: %w", fsName, err)
+	}
+
+	if fsExists {
+		for _, key := range []string{"create_missing", "osd_pg_num", "meta_pool", "data_pool"} {
+			cephfsSourceKey := fmt.Sprintf("cephfs.%s", key)
+			if d.config[cephfsSourceKey] != "" {
+				return fmt.Errorf("Invalid config key %q: CephFS filesystem already exists", cephfsSourceKey)
+			}
+		}
+	} else {
+		createMissing := shared.IsTrue(d.config["cephfs.create_missing"])
+		if !createMissing {
+			return fmt.Errorf("The requested %q CEPHFS doesn't exist", fsName)
+		}
+
+		// Set the pg_num to 32 because we need to specify something, but ceph will automatically change it if necessary.
+		pgNum := d.config["cephfs.osd_pg_num"]
+		if pgNum == "" {
+			d.config["cephfs.osd_pg_num"] = "32"
+		}
+
+		// Create the meta and data pools if necessary.
+		for _, key := range []string{"cephfs.meta_pool", "cephfs.data_pool"} {
+			pool := d.config[key]
+
+			if pool == "" {
+				return fmt.Errorf("Missing required key %q for creating cephfs osd pool", key)
+			}
+
+			osdPoolExists, err := d.osdPoolExists(d.config["cephfs.cluster_name"], d.config["cephfs.user.name"], pool)
+			if err != nil {
+				return fmt.Errorf("Failed to check if %q OSD Pool exists: %w", pool)
+			}
+
+			if !osdPoolExists {
+				// Create new osd pool.
+				_, err := shared.RunCommand("ceph",
+					"--name", fmt.Sprintf("client.%s", d.config["cephfs.user.name"]),
+					"--cluster", d.config["cephfs.cluster_name"],
+					"osd",
+					"pool",
+					"create",
+					pool,
+					d.config["cephfs.osd_pg_num"],
+				)
+				if err != nil {
+					return fmt.Errorf("Failed to create ceph OSD pool %q: %w", pool, err)
+				}
+			}
+		}
+
+		// Create the filesystem.
+		_, err := shared.RunCommand("ceph",
+			"--name", fmt.Sprintf("client.%s", d.config["cephfs.user.name"]),
+			"--cluster", d.config["cephfs.cluster_name"],
+			"fs",
+			"new",
+			fsName,
+			d.config["cephfs.meta_pool"],
+			d.config["cephfs.data_pool"],
+		)
+		if err != nil {
+			return fmt.Errorf("Failed to create CEPHFS %q: %w", fsName, err)
+		}
 	}
 
 	// Create a temporary mountpoint.
