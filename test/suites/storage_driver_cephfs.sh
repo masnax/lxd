@@ -11,34 +11,47 @@ test_storage_driver_cephfs() {
   lxc storage create cephfs cephfs source="${LXD_CEPH_CEPHFS}/$(basename "${LXD_DIR}")"
   lxc storage delete cephfs
 
+  # Test invalid key combinations for auto-creation of cephfs entities.
+  ! lxc storage create cephfs cephfs source="${LXD_CEPH_CEPHFS}/$(basename "${LXD_DIR}")" cephfs.osd_pg_num=32 || true
+  ! lxc storage create cephfs cephfs source="${LXD_CEPH_CEPHFS}/$(basename "${LXD_DIR}")" cephfs.meta_pool=xyz || true
+  ! lxc storage create cephfs cephfs source="${LXD_CEPH_CEPHFS}/$(basename "${LXD_DIR}")" cephfs.data_pool=xyz || true
+  ! lxc storage create cephfs cephfs source="${LXD_CEPH_CEPHFS}/$(basename "${LXD_DIR}")" cephfs.create_missing=true cephfs.data_pool=xyz_data cephfs.meta_pool=xyz_meta || true
+
   # Second create (confirm got cleaned up properly)
   lxc storage create cephfs cephfs source="${LXD_CEPH_CEPHFS}/$(basename "${LXD_DIR}")"
   lxc storage info cephfs
 
-  # Creation, rename and deletion
-  lxc storage volume create cephfs vol1
-  lxc storage volume set cephfs vol1 size 100MiB
-  lxc storage volume rename cephfs vol1 vol2
-  lxc storage volume copy cephfs/vol2 cephfs/vol1
-  lxc storage volume delete cephfs vol1
-  lxc storage volume delete cephfs vol2
+  # Create a second cephfs but auto-create the missing OSD pools and fs.
+  lxc storage create cephfs2 cephfs source=cephfs2 cephfs.create_missing=true cephfs.data_pool=xyz_data cephfs.meta_pool=xyz_meta
+  lxc storage info cephfs2
 
-  # Snapshots
-  lxc storage volume create cephfs vol1
-  lxc storage volume snapshot cephfs vol1
-  lxc storage volume snapshot cephfs vol1
-  lxc storage volume snapshot cephfs vol1 blah1
-  lxc storage volume rename cephfs vol1/blah1 vol1/blah2
-  lxc storage volume snapshot cephfs vol1 blah1
-  lxc storage volume delete cephfs vol1/snap0
-  lxc storage volume delete cephfs vol1/snap1
-  lxc storage volume restore cephfs vol1 blah1
-  lxc storage volume copy cephfs/vol1 cephfs/vol2 --volume-only
-  lxc storage volume copy cephfs/vol1 cephfs/vol3 --volume-only
-  lxc storage volume delete cephfs vol1
-  lxc storage volume delete cephfs vol2
-  lxc storage volume delete cephfs vol3
+  for fs in "cephfs" "cephfs2" ; do
+    # Creation, rename and deletion
+    lxc storage volume create "${fs}" vol1
+    lxc storage volume set "${fs}" vol1 size 100MiB
+    lxc storage volume rename "${fs}" vol1 vol2
+    lxc storage volume copy "${fs}"/vol2 "${fs}"/vol1
+    lxc storage volume delete "${fs}" vol1
+    lxc storage volume delete "${fs}" vol2
 
-  # Cleanup
-  lxc storage delete cephfs
+    # Snapshots
+    lxc storage volume create "${fs}" vol1
+    lxc storage volume snapshot "${fs}" vol1
+    lxc storage volume snapshot "${fs}" vol1
+    lxc storage volume snapshot "${fs}" vol1 blah1
+    lxc storage volume rename "${fs}" vol1/blah1 vol1/blah2
+    lxc storage volume snapshot "${fs}" vol1 blah1
+    lxc storage volume delete "${fs}" vol1/snap0
+    lxc storage volume delete "${fs}" vol1/snap1
+    lxc storage volume restore "${fs}" vol1 blah1
+    lxc storage volume copy "${fs}"/vol1 "${fs}"/vol2 --volume-only
+    lxc storage volume copy "${fs}"/vol1 "${fs}"/vol3 --volume-only
+    lxc storage volume delete "${fs}" vol1
+    lxc storage volume delete "${fs}" vol2
+    lxc storage volume delete "${fs}" vol3
+
+    # Cleanup
+    lxc storage delete "${fs}"
+  done
+
 }
