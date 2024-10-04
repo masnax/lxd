@@ -43,6 +43,7 @@ require (
 	github.com/openfga/language/pkg/go v0.2.0-beta.2
 	github.com/openfga/openfga v1.6.1
 	github.com/osrg/gobgp/v3 v3.30.0
+	github.com/ovn-org/libovsdb v0.7.0
 	github.com/pkg/sftp v1.13.6
 	github.com/pkg/xattr v0.4.10
 	github.com/robfig/cron/v3 v3.0.1
@@ -76,6 +77,8 @@ require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bmatcuk/doublestar/v4 v4.6.1 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
+	github.com/cenkalti/hub v1.0.1 // indirect
+	github.com/cenkalti/rpc2 v0.0.0-20210604223624-c1acbc6ec984 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.5 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect

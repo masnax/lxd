@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -17,6 +19,9 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/ovn-org/libovsdb/client"
+	"github.com/ovn-org/libovsdb/model"
+	"github.com/ovn-org/libovsdb/ovsdb"
 
 	"github.com/canonical/lxd/client"
 	"github.com/canonical/lxd/lxd/acme"
@@ -71,11 +76,292 @@ type evacuateOpts struct {
 
 var targetGroupPrefix = "@"
 
+type (
+	EncapType = string
+)
+
+var (
+	EncapTypeGeneve EncapType = "geneve"
+	EncapTypeSTT    EncapType = "stt"
+	EncapTypeVxlan  EncapType = "vxlan"
+)
+
+// Encap defines an object in Encap table
+type Encap struct {
+	UUID        string            `ovsdb:"_uuid"`
+	ChassisName string            `ovsdb:"chassis_name"`
+	IP          string            `ovsdb:"ip"`
+	Options     map[string]string `ovsdb:"options"`
+	Type        EncapType         `ovsdb:"type"`
+}
+
+// FullDatabaseModel returns the DatabaseModel object to be used in libovsdb
+func FullDatabaseModel() (model.ClientDBModel, error) {
+	return model.NewClientDBModel("OVN_Southbound", map[string]model.Model{
+		"Encap": &Encap{},
+	})
+}
+
+func getClient() (client.Client, error) {
+	pkey := "/var/snap/microovn/common/data/pki/ovnsb-privkey.pem"
+	cert := "/var/snap/microovn/common/data/pki/ovnsb-cert.pem"
+	ca := "/var/snap/microovn/common/data/pki/cacert.pem"
+
+	// Load CA cert
+	caCert, err := os.ReadFile(ca)
+	if err != nil {
+		return nil, err
+	}
+
+	clientCert, err := tls.LoadX509KeyPair(cert, pkey)
+	if err != nil {
+		return nil, err
+	}
+
+	caCertPool := x509.NewCertPool()
+	caCertPool.AppendCertsFromPEM(caCert)
+
+	tlsConfig := &tls.Config{
+		InsecureSkipVerify: true,
+		Certificates:       []tls.Certificate{clientCert},
+		RootCAs:            caCertPool,
+	}
+
+	endpoint := client.WithEndpoint("ssl:10.223.223.94:6642")
+	cfg := client.WithTLSConfig(tlsConfig)
+
+	//	m, err := model.NewClientDBModel("OVN_Southbound", nil)
+
+	m, err := FullDatabaseModel()
+	if err != nil {
+		return nil, err
+	}
+
+	c, err := client.NewOVSDBClient(m, endpoint, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	return c, nil
+}
+
+// OpenvSwitch defines an object in Open_vSwitch table
+type OpenvSwitch struct {
+	UUID            string            `ovsdb:"_uuid"`
+	Bridges         []string          `ovsdb:"bridges"`
+	CurCfg          int               `ovsdb:"cur_cfg"`
+	DatapathTypes   []string          `ovsdb:"datapath_types"`
+	Datapaths       map[string]string `ovsdb:"datapaths"`
+	DbVersion       *string           `ovsdb:"db_version"`
+	DpdkInitialized bool              `ovsdb:"dpdk_initialized"`
+	DpdkVersion     *string           `ovsdb:"dpdk_version"`
+	ExternalIDs     map[string]string `ovsdb:"external_ids"`
+	IfaceTypes      []string          `ovsdb:"iface_types"`
+	ManagerOptions  []string          `ovsdb:"manager_options"`
+	NextCfg         int               `ovsdb:"next_cfg"`
+	OtherConfig     map[string]string `ovsdb:"other_config"`
+	OVSVersion      *string           `ovsdb:"ovs_version"`
+	SSL             *string           `ovsdb:"ssl"`
+	Statistics      map[string]string `ovsdb:"statistics"`
+	SystemType      *string           `ovsdb:"system_type"`
+	SystemVersion   *string           `ovsdb:"system_version"`
+}
+
+func getVSClient() (client.Client, error) {
+	db := "unix:/var/snap/microovn/common/run/switch/db.sock"
+	endpoint := client.WithEndpoint(db)
+
+	m, err := model.NewClientDBModel("Open_vSwitch", map[string]model.Model{"Open_vSwitch": &OpenvSwitch{}})
+	if err != nil {
+		return nil, err
+	}
+
+	c, err := client.NewOVSDBClient(m, endpoint)
+	if err != nil {
+		return nil, err
+	}
+
+	return c, nil
+}
+
+func setEncap(ip string) error {
+	c, err := getVSClient()
+	if err != nil {
+		return err
+	}
+
+	err = c.Connect(context.Background())
+	if err != nil {
+		return err
+	}
+
+	defer c.Disconnect()
+
+	rows := c.Cache().Table("Open_vSwitch").Rows()
+	if len(rows) != 1 {
+		return fmt.Errorf("Cannot find the OVS root switch")
+	}
+
+	var rootUUID string
+	for uuid := range rows {
+		rootUUID = uuid
+	}
+
+	vSwitch := &OpenvSwitch{
+		UUID: rootUUID,
+	}
+
+	err = c.Get(context.Background(), vSwitch)
+	if err != nil {
+		return err
+	}
+
+	// Fetch the current open_vswitch data.
+	res, err := c.Transact(context.Background(), ovsdb.Operation{
+		Op:    ovsdb.OperationSelect,
+		Table: "Open_vSwitch",
+	})
+	if err != nil {
+		return err
+	}
+
+	var oldRow ovsdb.Row
+	for _, r := range res {
+		if r.Error != "" {
+			return errors.New(r.Error)
+		}
+
+		if len(res) > 1 {
+			return fmt.Errorf("Expected only 1 OVS result")
+		}
+
+		if len(r.Rows) > 1 {
+			return fmt.Errorf("Expected only 1 OVS row")
+		}
+
+		oldRow = r.Rows[0]
+	}
+
+	// Get the external_ids column.
+	extIDs, ok := oldRow["external_ids"].(ovsdb.OvsMap)
+	if !ok {
+		return fmt.Errorf("Invalid type for external ids column")
+	}
+
+	// Update the encap ip values.
+	extIDs.GoMap["ovn-encap-ip"] = ip
+	extIDs.GoMap["ovn-encap-type"] = "geneve"
+	newRow := ovsdb.NewRow()
+	newRow["external_ids"] = extIDs
+
+	// Update expects a filter, so check against the UUID column.
+	checkUUID := ovsdb.NewCondition("_uuid", ovsdb.ConditionEqual, oldRow["_uuid"])
+	res, err = c.Transact(context.Background(), ovsdb.Operation{
+		Op:    ovsdb.OperationUpdate,
+		Table: "Open_vSwitch",
+		Where: []ovsdb.Condition{checkUUID},
+		Row:   newRow,
+	})
+	if err != nil {
+		return err
+	}
+
+	for _, r := range res {
+		if r.Error != "" {
+			return errors.New(r.Error)
+		}
+	}
+
+	return nil
+}
+
+func getEncap() ([]api.Encap, error) {
+	var encaps []api.Encap
+	c, err := getClient()
+	if err != nil {
+		return nil, err
+	}
+
+	err = c.Connect(context.Background())
+	if err != nil {
+		return nil, err
+	}
+
+	defer c.Disconnect()
+
+	rows := c.Cache().Table("Open_vSwitch").Rows()
+	if len(rows) != 1 {
+		return nil, fmt.Errorf("Cannot find the OVS root switch")
+	}
+
+	var rootUUID string
+	for uuid := range rows {
+		rootUUID = uuid
+	}
+
+	res, err := c.Transact(context.Background(), ovsdb.Operation{
+		Op:    ovsdb.OperationSelect,
+		Table: "Encap",
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	for _, x := range res {
+		if x.Error != "" {
+			return nil, errors.New(x.Error)
+		}
+
+		for _, row := range x.Rows {
+			for k, v := range row {
+				logger.Errorf("K: [%+v] V: [%+v]", k, v)
+			}
+
+			b, err := json.Marshal(row)
+			if err != nil {
+				return nil, err
+			}
+
+			var e api.Encap
+			err = json.Unmarshal(b, &e)
+			if err != nil {
+				return nil, err
+			}
+
+			e.SetRow(row)
+			encaps = append(encaps, e)
+		}
+	}
+
+	return encaps, nil
+}
+
 var clusterCmd = APIEndpoint{
 	Path: "cluster",
 
 	Get: APIEndpointAction{Handler: clusterGet, AccessHandler: allowAuthenticated},
 	Put: APIEndpointAction{Handler: clusterPut, AccessHandler: allowPermission(entity.TypeServer, auth.EntitlementCanEdit)},
+
+	Post: APIEndpointAction{Handler: func(d *Daemon, r *http.Request) response.Response {
+		encapsPre, err := getEncap()
+		if err != nil {
+			return response.SmartError(err)
+		}
+
+		//err = setEncap("10.222.222.101")
+		//if err != nil {
+		//	return response.SmartError(err)
+		//}
+
+		//encapsPost, err := getEncap()
+		//if err != nil {
+		//	return response.SmartError(err)
+		//}
+
+		//encapsPre = append(encapsPre, encapsPost...)
+		return response.SyncResponse(true, encapsPre)
+
+	}, AllowUntrusted: true},
 }
 
 var clusterNodesCmd = APIEndpoint{

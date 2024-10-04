@@ -156,6 +156,19 @@ func (c *cmdClusterList) run(cmd *cobra.Command, args []string) error {
 	}
 
 	resource := resources[0]
+	// Check if clustered
+	encapr, _, err := resource.server.GetCluster2()
+	if err != nil {
+		return err
+	}
+
+	for _, c := range encapr {
+		fmt.Println(c.ChassisName, c.Type, c.IP)
+	}
+
+	if 1 > 0 {
+		return nil
+	}
 
 	// Check if clustered
 	cluster, _, err := resource.server.GetCluster()

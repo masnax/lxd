@@ -4,7 +4,28 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"time"
+
+	"github.com/ovn-org/libovsdb/ovsdb"
 )
+
+// Encap struct maps to the OVN_Southbound Encap table
+type Encap struct {
+	UUID        ovsdb.UUID `json:"_uuid"`
+	Version     ovsdb.UUID `json:"_version"`
+	ChassisName string     `json:"chassis_name"`
+	IP          string     `json:"ip"`
+	Type        string     `json:"type"`
+
+	row ovsdb.Row
+}
+
+func (e *Encap) SetRow(row ovsdb.Row) {
+	e.row = row
+}
+
+func (e *Encap) GetRow() ovsdb.Row {
+	return e.row
+}
 
 // Cluster represents high-level information about a LXD cluster.
 //

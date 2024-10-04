@@ -22,6 +22,22 @@ func (r *ProtocolLXD) GetCluster() (*api.Cluster, string, error) {
 	return cluster, etag, nil
 }
 
+// GetCluster returns information about a cluster.
+func (r *ProtocolLXD) GetCluster2() ([]api.Encap, string, error) {
+	err := r.CheckExtension("clustering")
+	if err != nil {
+		return nil, "", err
+	}
+
+	cluster := []api.Encap{}
+	etag, err := r.queryStruct("POST", "/cluster", nil, "", &cluster)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return cluster, etag, nil
+}
+
 // UpdateCluster requests to bootstrap a new cluster or join an existing one.
 func (r *ProtocolLXD) UpdateCluster(cluster api.ClusterPut, ETag string) (Operation, error) {
 	err := r.CheckExtension("clustering")
