@@ -116,7 +116,7 @@ func (d *ceph) FillConfig() error {
 
 	if d.config["ceph.osd.pool_size"] == "" {
 		size, err := shared.TryRunCommand("ceph",
-			"--name", fmt.Sprintf("client.%s", d.config["ceph.user.name"]),
+			"--name", "client.%s"+d.config["ceph.user.name"],
 			"--cluster", d.config["ceph.cluster_name"],
 			"config",
 			"get",
@@ -183,7 +183,7 @@ func (d *ceph) Create() error {
 	if !poolExists {
 		// Create new osd pool.
 		_, err := shared.TryRunCommand("ceph",
-			"--name", fmt.Sprintf("client.%s", d.config["ceph.user.name"]),
+			"--name", "client.%s"+d.config["ceph.user.name"],
 			"--cluster", d.config["ceph.cluster_name"],
 			"osd",
 			"pool",
@@ -197,7 +197,7 @@ func (d *ceph) Create() error {
 		revert.Add(func() { _ = d.osdDeletePool() })
 
 		_, err = shared.TryRunCommand("ceph",
-			"--name", fmt.Sprintf("client.%s", d.config["ceph.user.name"]),
+			"--name", "client.%s"+d.config["ceph.user.name"],
 			"--cluster", d.config["ceph.cluster_name"],
 			"osd",
 			"pool",
@@ -256,7 +256,7 @@ func (d *ceph) Create() error {
 
 		// Use existing OSD pool.
 		msg, err := shared.RunCommand("ceph",
-			"--name", fmt.Sprintf("client.%s", d.config["ceph.user.name"]),
+			"--name", "client.%s"+d.config["ceph.user.name"],
 			"--cluster", d.config["ceph.cluster_name"],
 			"osd",
 			"pool",
@@ -407,7 +407,7 @@ func (d *ceph) Update(changedConfig map[string]string) error {
 	newSize := changedConfig["ceph.osd.pool_size"]
 	if newSize != d.config["ceph.osd.pool_size"] && newSize != "" {
 		_, err := shared.TryRunCommand("ceph",
-			"--name", fmt.Sprintf("client.%s", d.config["ceph.user.name"]),
+			"--name", "client.%s"+d.config["ceph.user.name"],
 			"--cluster", d.config["ceph.cluster_name"],
 			"osd",
 			"pool",
@@ -451,7 +451,7 @@ func (d *ceph) GetResources() (*api.ResourcesStoragePool, error) {
 
 	err := shared.RunCommandWithFds(context.TODO(), nil, &stdout,
 		"ceph",
-		"--name", fmt.Sprintf("client.%s", d.config["ceph.user.name"]),
+		"--name", "client.%s"+d.config["ceph.user.name"],
 		"--cluster", d.config["ceph.cluster_name"],
 		"df",
 		"-f", "json")

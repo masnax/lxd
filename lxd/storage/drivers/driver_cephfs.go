@@ -106,7 +106,7 @@ func (d *cephfs) FillConfig() error {
 
 	if d.config["cephfs.osd_pool_size"] == "" {
 		size, err := shared.TryRunCommand("ceph",
-			"--name", fmt.Sprintf("client.%s", d.config["cephfs.user.name"]),
+			"--name", "client."+d.config["cephfs.user.name"],
 			"--cluster", d.config["cephfs.cluster_name"],
 			"config",
 			"get",
@@ -201,7 +201,7 @@ func (d *cephfs) Create() error {
 			if !osdPoolExists {
 				// Create new osd pool.
 				_, err := shared.RunCommand("ceph",
-					"--name", fmt.Sprintf("client.%s", d.config["cephfs.user.name"]),
+					"--name", "client."+d.config["cephfs.user.name"],
 					"--cluster", d.config["cephfs.cluster_name"],
 					"osd",
 					"pool",
@@ -216,7 +216,7 @@ func (d *cephfs) Create() error {
 				revert.Add(func() {
 					// Delete the OSD pool.
 					_, _ = shared.RunCommand("ceph",
-						"--name", fmt.Sprintf("client.%s", d.config["cephfs.user.name"]),
+						"--name", "client."+d.config["cephfs.user.name"],
 						"--cluster", d.config["cephfs.cluster_name"],
 						"osd",
 						"pool",
@@ -228,7 +228,7 @@ func (d *cephfs) Create() error {
 				})
 
 				_, err = shared.TryRunCommand("ceph",
-					"--name", fmt.Sprintf("client.%s", d.config["cephfs.user.name"]),
+					"--name", "client."+d.config["cephfs.user.name"],
 					"--cluster", d.config["cephfs.cluster_name"],
 					"osd",
 					"pool",
@@ -245,7 +245,7 @@ func (d *cephfs) Create() error {
 
 		// Create the filesystem.
 		_, err := shared.RunCommand("ceph",
-			"--name", fmt.Sprintf("client.%s", d.config["cephfs.user.name"]),
+			"--name", "client."+d.config["cephfs.user.name"],
 			"--cluster", d.config["cephfs.cluster_name"],
 			"fs",
 			"new",
@@ -260,7 +260,7 @@ func (d *cephfs) Create() error {
 		revert.Add(func() {
 			// Set the FS to fail so that we can remove it.
 			_, _ = shared.RunCommand("ceph",
-				"--name", fmt.Sprintf("client.%s", d.config["cephfs.user.name"]),
+				"--name", "client."+d.config["cephfs.user.name"],
 				"--cluster", d.config["cephfs.cluster_name"],
 				"fs",
 				"fail",
@@ -269,7 +269,7 @@ func (d *cephfs) Create() error {
 
 			// Delete the FS.
 			_, _ = shared.RunCommand("ceph",
-				"--name", fmt.Sprintf("client.%s", d.config["cephfs.user.name"]),
+				"--name", "client."+d.config["cephfs.user.name"],
 				"--cluster", d.config["cephfs.cluster_name"],
 				"fs",
 				"rm",
@@ -491,7 +491,7 @@ func (d *cephfs) Update(changedConfig map[string]string) error {
 			}
 
 			_, err := shared.TryRunCommand("ceph",
-				"--name", fmt.Sprintf("client.%s", d.config["cephfs.user.name"]),
+				"--name", "client."+d.config["cephfs.user.name"],
 				"--cluster", d.config["cephfs.cluster_name"],
 				"osd",
 				"pool",
